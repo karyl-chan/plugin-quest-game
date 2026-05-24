@@ -1,0 +1,318 @@
+import {
+  componentCustomId,
+  type ComponentContext,
+  type ComponentReply,
+} from "@karyl-chan/plugin-sdk";
+import { EMBED_COLOR, PLUGIN_KEY } from "../constants.js";
+import { t } from "../i18n/index.js";
+import {
+  evaluateVerdict,
+  leader,
+  playerByIndex,
+  playerByUserId,
+  recordMvpRejection,
+  rotateLeader,
+  type GameState,
+} from "../game/state.js";
+import { getGame } from "../game/store.js";
+import { recordEvent } from "../game/events.js";
+import {
+  editMessage,
+  sendMessage,
+  type DiscordActionRow,
+} from "./discord.js";
+import { openAppoint } from "./stages-appoint.js";
+import { missionProgressLine, viewCardButtonRow } from "./presentation.js";
+import { runtime } from "./runtime.js";
+import { endGame } from "./stages-ending.js";
+import { scheduleNpcStep } from "../npc/driver.js";
+
+/**
+ * Open the public-vote stage. Every seated player gets a turn at the
+ * Approve / Reject buttons. Once everyone has voted the tally is
+ * revealed; majority approve → mission begins (private-vote stage,
+ * landed in a later commit), tie/minority → reject, rotate leader,
+ * tick the rejection counter, re-open appoint (or end the game if 5
+ * rejections in a row).
+ *
+ * The vote message is the source of truth — the live vote count
+ * repaints into a "n / N voted" field with no per-player disclosure.
+ */
+export async function openPublicVote(
+  state: GameState,
+  missionMembers: number[],
+): Promise<void> {
+  const sent = await sendMessage({
+    channelId: state.channelId,
+    embeds: [renderPublicVoteEmbed(state, missionMembers, {})],
+    components: publicVoteComponents(),
+  });
+  if (!sent) {
+    runtime().log.error("quest-game: failed to open publicVote stage", {
+      channelId: state.channelId,
+      round: state.round,
+      stage: "publicVote",
+    });
+    return;
+  }
+  state.current = {
+    kind: "publicVote",
+    messageId: sent.id,
+    missionMembers,
+    votes: {},
+  };
+  // Timeline: the leader locked this roster. Emitted here — the
+  // single convergence point both the human (confirmAppoint) and the
+  // NPC (driver.performAppoint) appoint paths funnel through.
+  recordEvent(state, {
+    kind: "team-proposed",
+    round: state.round,
+    leaderSeat: state.leaderIndex,
+    memberSeats: missionMembers,
+  });
+  scheduleNpcStep(state);
+}
+
+export async function handlePublicVoteClick(
+  ctx: ComponentContext,
+  tail: string,
+): Promise<ComponentReply> {
+  const game = getGame(ctx.channelId!);
+  if (!game) return null;
+  if (tail === "y" || tail === "n") {
+    await applyPublicVote(game, ctx.userId, tail === "y" ? "yes" : "no");
+  }
+  return null;
+}
+
+/**
+ * Record a player's approve/reject ballot — the game-state core
+ * shared by the Discord board and the WebUI. No-op for a non-player
+ * or a double vote. Repaints the Discord board and, once everyone
+ * has voted, resolves the stage.
+ */
+export async function applyPublicVote(
+  game: GameState,
+  userId: string,
+  vote: "yes" | "no",
+): Promise<void> {
+  if (game.current?.kind !== "publicVote") return;
+  const me = playerByUserId(game, userId);
+  if (!me) return;
+  if (game.current.votes[userId]) return;
+  game.current.votes[userId] = vote;
+  if (vote === "no") {
+    recordMvpRejection(game, me, game.current.missionMembers);
+  }
+
+  // Live progress repaint — show vote count only, not who-voted-what.
+  await editMessage({
+    channelId: game.channelId,
+    messageId: game.current.messageId,
+    embeds: [
+      renderPublicVoteEmbed(game, game.current.missionMembers, game.current.votes),
+    ],
+    components: publicVoteComponents(),
+  });
+
+  // Everyone voted? Tally + transition.
+  if (Object.keys(game.current.votes).length === game.players.length) {
+    await resolvePublicVote(game);
+  }
+}
+
+export async function resolvePublicVote(game: GameState): Promise<void> {
+  if (game.current?.kind !== "publicVote") return;
+  const votesByUser = game.current.votes;
+  const votes = Object.values(votesByUser);
+  const yes = votes.filter((v) => v === "yes").length;
+  const no = votes.length - yes;
+  const passed = yes > no;
+  const missionMembers = game.current.missionMembers;
+  const messageId = game.current.messageId;
+
+  // Timeline: public-vote ballots are open information once resolved
+  // (the board reveals every seat's vote), so recording them here
+  // leaks nothing the channel doesn't already show.
+  recordEvent(game, {
+    kind: "public-vote",
+    round: game.round,
+    approved: passed,
+    yes,
+    no,
+    ballots: game.players.map((p) => ({
+      seat: p.index,
+      vote: votesByUser[p.userId] ?? "no",
+    })),
+  });
+
+  // Reveal the final tally + every player's ballot on the board.
+  await editMessage({
+    channelId: game.channelId,
+    messageId,
+    embeds: [
+      renderPublicVoteResolved(
+        game,
+        missionMembers,
+        game.current.votes,
+        yes,
+        no,
+        passed,
+      ),
+    ],
+    components: [],
+  });
+
+  if (passed) {
+    // Mission begins — private-vote stage opens it. Until that commit
+    // lands we drop a "🚧 next stage" placeholder so manual e2e can
+    // continue without the dispatch threading falling over.
+    const { openPrivateVote } = await import("./stages-privatevote.js");
+    await openPrivateVote(game, missionMembers);
+    return;
+  }
+
+  // Rejected. Bump consecutive-rejection counter, rotate leader,
+  // re-open appoint — or end the game if we just hit the 5th reject.
+  game.consecutiveRejections++;
+  game.current = null;
+  const verdict = evaluateVerdict(game);
+  if (verdict.ended) {
+    await endGame(game, verdict);
+    return;
+  }
+  rotateLeader(game);
+  await openAppoint(game);
+}
+
+// ── rendering ──────────────────────────────────────────────────────────
+
+export function renderPublicVoteEmbed(
+  state: GameState,
+  missionMembers: number[],
+  votes: Record<string, "yes" | "no">,
+) {
+  const leaderPlayer = leader(state);
+  const rosterLines = missionMembers
+    .map((s) => playerByIndex(state, s))
+    .filter((p): p is NonNullable<typeof p> => p !== null)
+    .map((p) => `\`${p.index + 1}\` ${p.displayName}`)
+    .join("\n");
+  const voted = Object.keys(votes).length;
+  const fields: Array<{ name: string; value: string; inline?: boolean }> = [
+    {
+      name: t(undefined, "stage.board.fieldProgress"),
+      value: missionProgressLine(state),
+      inline: false,
+    },
+    {
+      name: t(undefined, "stage.publicVote.fieldRoster"),
+      value: rosterLines || "—",
+      inline: false,
+    },
+    {
+      name: t(undefined, "stage.publicVote.fieldVotes"),
+      value: t(undefined, "stage.publicVote.voted", {
+        n: voted,
+        total: state.players.length,
+      }),
+      inline: true,
+    },
+  ];
+  if (state.consecutiveRejections > 0) {
+    fields.push({
+      name: t(undefined, "stage.publicVote.fieldRejections"),
+      value: t(undefined, "stage.publicVote.rejectionWarn", {
+        n: state.consecutiveRejections,
+      }),
+      inline: true,
+    });
+  }
+  return {
+    title: t(undefined, "stage.publicVote.title", { round: state.round }),
+    description: t(undefined, "stage.publicVote.content", {
+      leader: `**${leaderPlayer.displayName}**`,
+      num: missionMembers.length,
+    }),
+    color: EMBED_COLOR,
+    fields,
+  };
+}
+
+function renderPublicVoteResolved(
+  state: GameState,
+  missionMembers: number[],
+  votes: Record<string, "yes" | "no">,
+  yes: number,
+  no: number,
+  passed: boolean,
+) {
+  const leaderPlayer = leader(state);
+  const rosterLines = missionMembers
+    .map((s) => playerByIndex(state, s))
+    .filter((p): p is NonNullable<typeof p> => p !== null)
+    .map((p) => `\`${p.index + 1}\` ${p.displayName}`)
+    .join("\n");
+  // Public vote is open information once resolved — list every seat
+  // with the ballot they cast (✅ approve / ❌ reject).
+  const ballotLines = state.players
+    .map((p) => {
+      const mark = votes[p.userId] === "yes" ? "✅" : "❌";
+      return `${mark} \`${p.index + 1}\` ${p.displayName}`;
+    })
+    .join("\n");
+  return {
+    title: t(undefined, "stage.publicVote.title", { round: state.round }),
+    description: t(undefined, "stage.publicVote.content", {
+      leader: `**${leaderPlayer.displayName}**`,
+      num: missionMembers.length,
+    }),
+    color: EMBED_COLOR,
+    fields: [
+      {
+        name: t(undefined, "stage.publicVote.fieldRoster"),
+        value: rosterLines || "—",
+        inline: false,
+      },
+      {
+        name: t(undefined, "stage.publicVote.fieldBallots"),
+        value: ballotLines || "—",
+        inline: false,
+      },
+      {
+        name: t(undefined, "stage.publicVote.fieldResult"),
+        value:
+          (passed
+            ? `✅ ${t(undefined, "stage.publicVote.passed")}`
+            : `❌ ${t(undefined, "stage.publicVote.rejected")}`) +
+          " · " +
+          t(undefined, "stage.publicVote.tally", { yes, no }),
+        inline: false,
+      },
+    ],
+  };
+}
+
+export function publicVoteComponents(): DiscordActionRow[] {
+  return [
+    {
+      type: 1,
+      components: [
+        {
+          type: 2,
+          // Neutral style — the ✅ / ❌ label emoji carries the meaning.
+          style: 2,
+          custom_id: componentCustomId(PLUGIN_KEY, "pub", "y"),
+          label: t(undefined, "stage.publicVote.approve"),
+        },
+        {
+          type: 2,
+          style: 2,
+          custom_id: componentCustomId(PLUGIN_KEY, "pub", "n"),
+          label: t(undefined, "stage.publicVote.reject"),
+        },
+      ],
+    },
+    viewCardButtonRow(),
+  ];
+}

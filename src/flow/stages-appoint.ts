@@ -1,0 +1,215 @@
+import {
+  componentCustomId,
+  type ComponentContext,
+  type ComponentReply,
+} from "@karyl-chan/plugin-sdk";
+import { EMBED_COLOR, PLUGIN_KEY } from "../constants.js";
+import { t } from "../i18n/index.js";
+import {
+  currentMissionSize,
+  leader,
+  playerByIndex,
+  recordMvpProposal,
+  type GameState,
+} from "../game/state.js";
+import { getGame } from "../game/store.js";
+import {
+  editMessage,
+  sendMessage,
+  type DiscordActionRow,
+  type DiscordButton,
+} from "./discord.js";
+import {
+  missionProgressLine,
+  truncate,
+  viewCardButtonRow,
+} from "./presentation.js";
+import { runtime } from "./runtime.js";
+import { openPublicVote } from "./stages-publicvote.js";
+import { scheduleNpcStep } from "../npc/driver.js";
+
+/**
+ * Round opener. Posts the appoint board and primes
+ * `state.current = { kind: "appoint", … }` so the seat-toggle handler
+ * can edit-in-place. Called from:
+ *  - `signup.handleStartClick` once the deck is dealt,
+ *  - `stages-publicvote` after a rejection,
+ *  - `stages-private-vote` after a mission resolves and the game
+ *    isn't over yet (lands in a later commit).
+ */
+export async function openAppoint(state: GameState): Promise<void> {
+  const num = currentMissionSize(state);
+  const leaderPlayer = leader(state);
+  const sent = await sendMessage({
+    channelId: state.channelId,
+    embeds: [renderAppointEmbed(state, leaderPlayer.displayName, [])],
+    components: appointComponents(state, []),
+  });
+  if (!sent) {
+    // B-016: surface the failure so SREs can correlate against
+    // Discord rate-limit / outage incidents. state.current stays null;
+    // the game falls into a stalled-but-stoppable mode where the host
+    // can use /quest-game stop to clear it.
+    runtime().log.error("quest-game: failed to open appoint stage", {
+      channelId: state.channelId,
+      round: state.round,
+      stage: "appoint",
+    });
+    return;
+  }
+  state.current = {
+    kind: "appoint",
+    messageId: sent.id,
+    selected: [],
+  };
+  void num;
+  scheduleNpcStep(state);
+}
+
+export async function handleAppointClick(
+  ctx: ComponentContext,
+  tail: string,
+): Promise<ComponentReply> {
+  const game = getGame(ctx.channelId!);
+  if (!game) return null;
+  // tail shape: `s:<seat>` to toggle, `c` to confirm.
+  if (tail === "c") {
+    await applyAppointConfirm(game, ctx.userId);
+  } else if (tail.startsWith("s:")) {
+    await applyAppointToggle(game, ctx.userId, Number(tail.slice(2)));
+  }
+  return null;
+}
+
+/**
+ * Toggle `seat` on/off the mission roster the leader is building.
+ * The game-state core shared by the Discord board and the WebUI —
+ * validates stage + leader, mutates, repaints the Discord board.
+ * Invalid calls (wrong stage, not the leader, at capacity) are
+ * silent no-ops.
+ */
+export async function applyAppointToggle(
+  game: GameState,
+  userId: string,
+  seat: number,
+): Promise<void> {
+  if (game.current?.kind !== "appoint") return;
+  if (userId !== leader(game).userId) return;
+  const player = playerByIndex(game, seat);
+  if (!player) return;
+  const num = currentMissionSize(game);
+  const selected = game.current.selected;
+  const idx = selected.indexOf(seat);
+  if (idx >= 0) {
+    selected.splice(idx, 1);
+  } else {
+    if (selected.length >= num) return;
+    selected.push(seat);
+  }
+  const leaderPlayer = leader(game);
+  const selectedNames = selected.map(
+    (s) => playerByIndex(game, s)?.displayName ?? `#${s + 1}`,
+  );
+  await editMessage({
+    channelId: game.channelId,
+    messageId: game.current.messageId,
+    embeds: [renderAppointEmbed(game, leaderPlayer.displayName, selectedNames)],
+    components: appointComponents(game, selected),
+  });
+}
+
+/**
+ * Lock in the leader's mission roster and open the public vote.
+ * No-op unless the caller is the leader and exactly the required
+ * number of seats are selected.
+ */
+export async function applyAppointConfirm(
+  game: GameState,
+  userId: string,
+): Promise<void> {
+  if (game.current?.kind !== "appoint") return;
+  if (userId !== leader(game).userId) return;
+  if (game.current.selected.length !== currentMissionSize(game)) return;
+  const leaderPlayer = leader(game);
+  const selectedNames = game.current.selected.map(
+    (s) => playerByIndex(game, s)?.displayName ?? `#${s + 1}`,
+  );
+  await editMessage({
+    channelId: game.channelId,
+    messageId: game.current.messageId,
+    embeds: [renderAppointEmbed(game, leaderPlayer.displayName, selectedNames)],
+    components: [],
+  });
+  const missionMembers = [...game.current.selected];
+  recordMvpProposal(game, leaderPlayer, missionMembers);
+  await openPublicVote(game, missionMembers);
+}
+
+// ── rendering ──────────────────────────────────────────────────────────
+
+function renderAppointEmbed(
+  state: GameState,
+  leaderName: string,
+  selectedNames: string[],
+) {
+  const num = currentMissionSize(state);
+  return {
+    title: t(undefined, "stage.appoint.title", { round: state.round }),
+    description: t(undefined, "stage.appoint.content", {
+      leader: `**${leaderName}**`,
+      num,
+    }),
+    color: EMBED_COLOR,
+    fields: [
+      {
+        name: t(undefined, "stage.board.fieldProgress"),
+        value: missionProgressLine(state),
+        inline: false,
+      },
+      {
+        name: t(undefined, "stage.appoint.fieldSelected"),
+        value:
+          selectedNames.length === 0
+            ? t(undefined, "stage.appoint.selectedNone")
+            : selectedNames.map((n) => `\`${n}\``).join("\n"),
+        inline: false,
+      },
+    ],
+  };
+}
+
+function appointComponents(
+  state: GameState,
+  selected: number[],
+): DiscordActionRow[] {
+  const num = currentMissionSize(state);
+  const rows: DiscordActionRow[] = [];
+  // Seat buttons: row of up to 5, then wrap. With 10 players we get 2
+  // full rows of 5. Confirm sits on its own row so the action row
+  // count never exceeds 5 (Discord limit).
+  const seatButtons: DiscordButton[] = state.players.map((p, i) => ({
+    type: 2,
+    style: selected.includes(i) ? 3 : 2,
+    custom_id: componentCustomId(PLUGIN_KEY, "appt", `s:${i}`),
+    label: `${i + 1}. ${truncate(p.displayName, 18)}`,
+  }));
+  for (let i = 0; i < seatButtons.length; i += 5) {
+    rows.push({ type: 1, components: seatButtons.slice(i, i + 5) });
+  }
+  rows.push({
+    type: 1,
+    components: [
+      {
+        type: 2,
+        style: 1,
+        custom_id: componentCustomId(PLUGIN_KEY, "appt", "c"),
+        label: t(undefined, "stage.appoint.confirm"),
+        disabled: selected.length !== num,
+      },
+    ],
+  });
+  rows.push(viewCardButtonRow());
+  return rows;
+}
+
+export { renderAppointEmbed, appointComponents };

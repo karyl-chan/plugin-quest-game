@@ -1,0 +1,108 @@
+import type { ComponentContext, ComponentReply } from "@karyl-chan/plugin-sdk";
+import { withChannelLock } from "../game/store.js";
+import { followupEphemeral } from "./discord.js";
+import { runtime } from "./runtime.js";
+import {
+  handleSignupClick,
+  type SignupAction,
+} from "./signup.js";
+import {
+  handleDealClick,
+  handleAppointClick,
+  handlePublicVoteClick,
+  handlePrivateVoteClick,
+  handleLakeClick,
+  handleAssassinateClick,
+} from "./stages.js";
+import { notifyGameChanged } from "./sse.js";
+
+export { wireRuntime } from "./runtime.js";
+
+/**
+ * Single dispatch entrypoint for every `kc:karyl-quest-game:*` button.
+ *
+ * Discord delivers a button click as a fresh interaction with its own
+ * 15-minute token. We extract the `tail` (the part after the
+ * component id — e.g. `kc:karyl-quest-game:appt:3` ⇒ tail="3") and hand
+ * it to the per-stage handler under `withChannelLock` so concurrent
+ * clicks across the same channel serialise cleanly.
+ *
+ * Most handler errors land back here as a non-throw ephemeral nudge
+ * — that way one player's misclick can't crash the whole session.
+ */
+export async function onComponent(
+  ctx: ComponentContext,
+  componentId: string,
+): Promise<ComponentReply> {
+  if (!ctx.channelId) {
+    await safeEphemeral(ctx, "Channel context missing.");
+    return null;
+  }
+  const channelId = ctx.channelId;
+  try {
+    const reply = await withChannelLock(channelId, () =>
+      dispatchComponent(ctx, componentId),
+    );
+    // Push the new state to every WebUI board on this channel. Done
+    // after the lock releases — the mutation is already committed, so
+    // the snapshot still reflects it, and the SSE fan-out no longer
+    // blocks the next click.
+    notifyGameChanged(channelId);
+    return reply;
+  } catch (err) {
+    runtime().log.error("quest-game: component handler threw", {
+      componentId,
+      err: String(err),
+    });
+    await safeEphemeral(
+      ctx,
+      err instanceof Error ? err.message : String(err),
+    );
+    return null;
+  }
+}
+
+/** Route a button click to its per-stage handler. */
+function dispatchComponent(
+  ctx: ComponentContext,
+  componentId: string,
+): Promise<ComponentReply> {
+  switch (componentId) {
+    case "sig":
+      return handleSignupClick(ctx, ctx.tail as SignupAction);
+    case "deal":
+      return handleDealClick(ctx, ctx.tail);
+    case "appt":
+      return handleAppointClick(ctx, ctx.tail);
+    case "pub":
+      return handlePublicVoteClick(ctx, ctx.tail);
+    case "priv":
+      return handlePrivateVoteClick(ctx, ctx.tail);
+    case "lake":
+      return handleLakeClick(ctx, ctx.tail);
+    case "asn":
+      return handleAssassinateClick(ctx, ctx.tail);
+    default:
+      runtime().log.warn("quest-game: unknown component", {
+        componentId,
+        customId: ctx.customId,
+      });
+      return Promise.resolve(null);
+  }
+}
+
+/**
+ * Surface a genuine handler failure (a thrown exception, or a
+ * missing channel context) to the clicker. Reserved for real errors
+ * — routine "invalid click" cases are dropped silently by the stage
+ * handlers, not routed here.
+ */
+async function safeEphemeral(
+  ctx: ComponentContext,
+  content: string,
+): Promise<void> {
+  await followupEphemeral({
+    interactionToken: ctx.interactionToken,
+    content,
+  }).catch(() => {});
+}
