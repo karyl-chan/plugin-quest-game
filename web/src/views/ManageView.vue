@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
-import AppButton from "../components/AppButton.vue";
-import AppTabs from "../components/AppTabs.vue";
+import { AppButton, AppTabs, type TabDef } from "@karyl-chan/ui";
 import GamesView from "./GamesView.vue";
 import ArtView from "./ArtView.vue";
 import AssetsView from "./AssetsView.vue";
@@ -21,8 +20,9 @@ function loadStoredTab(): TabKey {
 
 const activeTab = ref<TabKey>(loadStoredTab());
 
-function onTabChange(next: TabKey): void {
-  activeTab.value = next;
+function onTabChange(next: string): void {
+  if (!(TAB_KEYS as ReadonlyArray<string>).includes(next)) return;
+  activeTab.value = next as TabKey;
   sessionStorage.setItem(STORAGE_KEY, next);
 }
 
@@ -30,12 +30,18 @@ const { games, signups, refresh, start } = useGamesPoll();
 
 const gamesTabCount = computed(() => games.value.length + signups.value.length);
 
-const tabs = computed<
-  Array<{ key: TabKey; label: string; count: number | undefined }>
->(() => [
-  { key: "games", label: "對局與報名", count: gamesTabCount.value },
-  { key: "art", label: "角色圖像", count: undefined },
-  { key: "assets", label: "遊戲元素", count: undefined },
+// @karyl-chan/ui's TabDef has no count field; fold the live count into
+// the label so the visual cue survives. The "art" / "assets" tabs have
+// no counter to fold so the labels stay plain.
+const tabs = computed<TabDef[]>(() => [
+  {
+    key: "games",
+    label: gamesTabCount.value > 0
+      ? `對局與報名 (${gamesTabCount.value})`
+      : "對局與報名",
+  },
+  { key: "art", label: "角色圖像" },
+  { key: "assets", label: "遊戲元素" },
 ]);
 
 onMounted(() => {
@@ -70,11 +76,12 @@ onMounted(() => {
 }
 .tabs-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 0.5rem;
 }
-.tabs-row :deep(.app-tabs) {
+.tabs-row > :first-child {
   flex: 1;
+  min-width: 0;
 }
 </style>

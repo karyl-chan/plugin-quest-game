@@ -2,8 +2,7 @@
 import { nextTick, onBeforeUnmount, ref, watch } from "vue";
 import Cropper from "cropperjs";
 import "cropperjs/dist/cropper.css";
-import AppButton from "./AppButton.vue";
-import AppModal from "./AppModal.vue";
+import { AppButton, AppModal } from "@karyl-chan/ui";
 
 /**
  * Square-aspect cropper modal for uploaded art (roles + game-element
@@ -217,20 +216,22 @@ function onClose(): void {
           重設
         </AppButton>
       </div>
+      <!-- @karyl-chan/ui AppModal has only a default slot — the action
+           row lives inline at the foot of the body. -->
+      <div class="crop-foot">
+        <AppButton variant="ghost" :disabled="submitting" @click="onClose">
+          取消
+        </AppButton>
+        <AppButton
+          variant="primary"
+          :loading="submitting"
+          :disabled="!ready"
+          @click="onConfirm"
+        >
+          確認並上傳
+        </AppButton>
+      </div>
     </div>
-    <template #footer>
-      <AppButton variant="ghost" :disabled="submitting" @click="onClose">
-        取消
-      </AppButton>
-      <AppButton
-        variant="primary"
-        :loading="submitting"
-        :disabled="!ready"
-        @click="onConfirm"
-      >
-        確認並上傳
-      </AppButton>
-    </template>
   </AppModal>
 </template>
 
@@ -239,6 +240,7 @@ function onClose(): void {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+  padding: 1rem;
 }
 .crop-hint {
   color: var(--text-muted);
@@ -267,5 +269,12 @@ function onClose(): void {
   flex-wrap: wrap;
   gap: 0.4rem;
   justify-content: center;
+}
+.crop-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border);
 }
 </style>

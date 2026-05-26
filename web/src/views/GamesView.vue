@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import AppButton from "../components/AppButton.vue";
+import { AppButton } from "@karyl-chan/ui";
 import { useGamesPoll } from "../composables/use-games-poll";
 
 const { games, signups, lastError, forceStop } = useGamesPoll();

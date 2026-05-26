@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted } from "vue";
 import "./styles/global.css";
-import AppToast from "./components/AppToast.vue";
+import { AppToast } from "@karyl-chan/ui";
 import DeniedView from "./views/DeniedView.vue";
 import ManageView from "./views/ManageView.vue";
 import GameBoardView from "./views/GameBoardView.vue";

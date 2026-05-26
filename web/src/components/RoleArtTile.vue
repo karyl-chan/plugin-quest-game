@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import AppButton from "./AppButton.vue";
+import { AppButton } from "@karyl-chan/ui";
 import type { AssetEntry, RoleArtEntry } from "../types";
 
 /**
