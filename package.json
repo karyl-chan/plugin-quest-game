@@ -20,7 +20,7 @@
   },
   "dependencies": {
     "@fastify/multipart": "^9.0.3",
-    "@karyl-chan/plugin-sdk": "^0.6.0",
+    "@karyl-chan/plugin-sdk": "^0.6.1",
     "cropperjs": "1"
   },
   "devDependencies": {
