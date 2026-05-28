@@ -4,7 +4,7 @@ import {
   type ComponentReply,
 } from "@karyl-chan/plugin-sdk";
 import { EMBED_COLOR, PLUGIN_KEY } from "../constants.js";
-import { t } from "../i18n/index.js";
+import { t, type Locale } from "../i18n/index.js";
 import {
   evaluateVerdict,
   factionOf,
@@ -131,6 +131,7 @@ export async function handleLakeClick(
   // Reveal the inspected faction to the holder via an ephemeral —
   // the public board stays neutral so bystanders can't infer it.
   // (On the WebUI the holder reads it straight off their vision.)
+  const locale = game.locale;
   const lakeArt = await lakeThumbnail();
   await followupEphemeral({
     interactionToken: ctx.interactionToken,
@@ -138,13 +139,13 @@ export async function handleLakeClick(
       withThumbnail(
         {
           color: EMBED_COLOR,
-          title: t(undefined, "stage.lake.resultTitle"),
-          description: t(undefined, "stage.lake.result", {
+          title: t(locale, "stage.lake.resultTitle"),
+          description: t(locale, "stage.lake.result", {
             target: `**${result.targetName}**`,
             faction:
               result.faction === "arthur"
-                ? `🔵 ${t(undefined, "faction.arthur")}`
-                : `🔴 ${t(undefined, "faction.mordred")}`,
+                ? `🔵 ${t(locale, "faction.arthur")}`
+                : `🔴 ${t(locale, "faction.mordred")}`,
           }),
         },
         lakeArt,
@@ -192,6 +193,7 @@ export async function applyLakeCheck(
     messageId,
     holder.displayName,
     target.displayName,
+    game.locale,
   );
 
   game.current = null;
@@ -223,6 +225,7 @@ export async function editLakeCheckedBoard(
   messageId: string,
   holderName: string,
   targetName: string,
+  locale: Locale,
 ): Promise<void> {
   const lakeArt = await lakeThumbnail();
   await editMessage({
@@ -232,8 +235,8 @@ export async function editLakeCheckedBoard(
       withThumbnail(
         {
           color: EMBED_COLOR,
-          title: t(undefined, "stage.lake.title"),
-          description: t(undefined, "stage.lake.checked", {
+          title: t(locale, "stage.lake.title"),
+          description: t(locale, "stage.lake.checked", {
             holder: `**${holderName}**`,
             target: `**${targetName}**`,
           }),
@@ -249,15 +252,15 @@ export async function editLakeCheckedBoard(
 
 function renderLakeEmbed(state: GameState, holderName: string) {
   return {
-    title: t(undefined, "stage.lake.title"),
-    description: t(undefined, "stage.lake.content", {
+    title: t(state.locale, "stage.lake.title"),
+    description: t(state.locale, "stage.lake.content", {
       holder: `**${holderName}**`,
       n: state.ladyUseCount + 1,
     }),
     color: EMBED_COLOR,
     fields: [
       {
-        name: t(undefined, "stage.lake.fieldHolder"),
+        name: t(state.locale, "stage.lake.fieldHolder"),
         value: holderName,
         inline: true,
       },
@@ -281,6 +284,6 @@ function lakeComponents(state: GameState): DiscordActionRow[] {
   for (let i = 0; i < buttons.length; i += 5) {
     rows.push({ type: 1, components: buttons.slice(i, i + 5) });
   }
-  rows.push(viewCardButtonRow());
+  rows.push(viewCardButtonRow(state.locale));
   return rows;
 }

@@ -10,6 +10,7 @@ import {
   type RoleToggles,
 } from "./roles.js";
 import type { GameEvent } from "./events.js";
+import type { Locale } from "../i18n/index.js";
 
 /**
  * Per-channel game state. One channel hosts at most one in-flight
@@ -91,6 +92,14 @@ export interface GameState {
   channelId: string;
   /** Whoever ran `/quest-game start`. Only they (or admin) can `/quest-game stop`. */
   hostUserId: string;
+  /**
+   * Locale every in-game render uses (boards, NPC repaints, ending
+   * embed). Captured once at game-creation time from the host's
+   * `/quest-game start` interaction so every player on the table sees
+   * a single consistent locale, rather than each click independently
+   * re-resolving against the clicker's own client locale.
+   */
+  locale: Locale;
   stage: Stage;
   /**
    * Transient stage runtime. Set by the stage opener, mutated by its
@@ -173,6 +182,8 @@ export function newGameState(opts: {
   guildId: string;
   channelId: string;
   hostUserId: string;
+  /** Locale captured from the host's `/quest-game start` interaction. */
+  locale: Locale;
   signups: Array<{ userId: string; displayName: string }>;
   ladyEnabled: boolean;
   /** Optional special roles; defaults to all enabled. */
@@ -193,6 +204,7 @@ export function newGameState(opts: {
     guildId: opts.guildId,
     channelId: opts.channelId,
     hostUserId: opts.hostUserId,
+    locale: opts.locale,
     stage: "lobby",
     current: null,
     players,

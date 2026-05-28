@@ -1,6 +1,6 @@
 import { componentCustomId } from "@karyl-chan/plugin-sdk";
 import { PLUGIN_KEY } from "../constants.js";
-import { t } from "../i18n/index.js";
+import { t, type Locale } from "../i18n/index.js";
 import type { VisionMarker } from "../game/vision.js";
 import type { GameState } from "../game/state.js";
 import type { DiscordActionRow } from "./discord.js";
@@ -87,7 +87,7 @@ export const FACTION_COLOR = {
  * pull it back up without scrolling for the original deal-reveal
  * message.
  */
-export function viewCardButtonRow(): DiscordActionRow {
+export function viewCardButtonRow(locale: Locale): DiscordActionRow {
   return {
     type: 1,
     components: [
@@ -95,7 +95,7 @@ export function viewCardButtonRow(): DiscordActionRow {
         type: 2,
         style: 2,
         custom_id: componentCustomId(PLUGIN_KEY, "deal"),
-        label: t(undefined, "stage.board.viewCard"),
+        label: t(locale, "stage.board.viewCard"),
       },
     ],
   };

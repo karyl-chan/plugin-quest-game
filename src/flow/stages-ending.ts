@@ -37,7 +37,7 @@ export async function endGame(state: GameState, verdict: Verdict): Promise<void>
   state.winner = verdict.winner ?? null;
   state.current = null;
   const rosterLines = state.players.map((p) => {
-    const role = t(undefined, ROLES[p.position].nameKey);
+    const role = t(state.locale, ROLES[p.position].nameKey);
     return `\`${p.index + 1}\` ${factionMarker(p)} ${p.displayName} — **${role}**`;
   });
   const arthurWin = verdict.winner === "arthur";
@@ -60,18 +60,18 @@ export async function endGame(state: GameState, verdict: Verdict): Promise<void>
 
   const embed: DiscordEmbed = {
     title: arthurWin
-      ? `🏆 ${t(undefined, "stage.ending.titleArthur")}`
-      : `🗡 ${t(undefined, "stage.ending.titleMordred")}`,
-    description: reasonText(verdict),
+      ? `🏆 ${t(state.locale, "stage.ending.titleArthur")}`
+      : `🗡 ${t(state.locale, "stage.ending.titleMordred")}`,
+    description: reasonText(state, verdict),
     color: arthurWin ? FACTION_COLOR.arthur : FACTION_COLOR.mordred,
     fields: [
       {
-        name: t(undefined, "stage.board.fieldProgress"),
+        name: t(state.locale, "stage.board.fieldProgress"),
         value: missionProgressLine(state),
         inline: false,
       },
       {
-        name: t(undefined, "stage.ending.fieldRoster"),
+        name: t(state.locale, "stage.ending.fieldRoster"),
         value: rosterLines.join("\n"),
         inline: false,
       },
@@ -95,22 +95,22 @@ function factionMarker(p: Player): string {
   return factionOf(p) === "arthur" ? "🔵" : "🔴";
 }
 
-function reasonText(verdict: Verdict): string {
+function reasonText(state: GameState, verdict: Verdict): string {
   switch (verdict.reason) {
     case "missions-clean":
-      return t(undefined, "stage.ending.reasonMissionsClean");
+      return t(state.locale, "stage.ending.reasonMissionsClean");
     case "missions-failed":
-      return t(undefined, "stage.ending.reasonFailures");
+      return t(state.locale, "stage.ending.reasonFailures");
     case "rejections":
-      return t(undefined, "stage.ending.reasonRejections");
+      return t(state.locale, "stage.ending.reasonRejections");
     case "merlin-killed":
-      return t(undefined, "stage.ending.reasonMerlinKilled");
+      return t(state.locale, "stage.ending.reasonMerlinKilled");
     case "merlin-survived":
-      return t(undefined, "stage.ending.reasonMerlinSurvived");
+      return t(state.locale, "stage.ending.reasonMerlinSurvived");
     case "missions-then-assassinate":
       // Shouldn't surface — that verdict means the game continues into
       // assassinate, not ends. Fall through to a generic line.
-      return t(undefined, "stage.ending.reasonMissions");
+      return t(state.locale, "stage.ending.reasonMissions");
     default:
       return "";
   }

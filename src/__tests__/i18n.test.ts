@@ -66,7 +66,10 @@ describe("i18n-003: missing key returns the key (loudly)", () => {
   it("warns + returns the literal", () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     // Cast bypasses LocaleKey to simulate a runtime-only miss.
-    const out = t(undefined, "fake.nonexistent" as never);
+    // Explicit locale because DEFAULT_LOCALE flipped to en in the
+    // i18n bump — keep the behavioural assertion locale-pinned so
+    // the test doesn't drift with a future default change.
+    const out = t("zh-TW", "fake.nonexistent" as never);
     expect(out).toBe("fake.nonexistent");
     expect(warnSpy).toHaveBeenCalled();
     warnSpy.mockRestore();
@@ -75,7 +78,11 @@ describe("i18n-003: missing key returns the key (loudly)", () => {
 
 describe("i18n: {var} interpolation", () => {
   it("substitutes {round} in stage.appoint.title", () => {
-    const out = t(undefined, "stage.appoint.title", { round: 3 });
+    // Pinned to zh-TW: this test predates the en/zh-CN dictionaries
+    // and asserted against the original zh-TW string. Use the
+    // explicit locale so the test stays valid after the default
+    // flipped from zh-TW to en.
+    const out = t("zh-TW", "stage.appoint.title", { round: 3 });
     expect(out).toContain("3");
     expect(out).not.toContain("{round}");
   });

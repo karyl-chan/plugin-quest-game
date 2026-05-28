@@ -21,7 +21,7 @@
   "dependencies": {
     "@fastify/multipart": "^9.0.3",
     "@iconify/vue": "^5.0.0",
-    "@karyl-chan/plugin-sdk": "^0.6.1",
+    "@karyl-chan/plugin-sdk": "^0.7.0",
     "@karyl-chan/ui": "^0.1.0",
     "@popperjs/core": "^2.11.8",
     "cropperjs": "1",

@@ -148,6 +148,10 @@ export function buildGame(opts: {
     guildId: opts.guildId ?? "g",
     channelId,
     hostUserId: opts.hostUserId ?? `u0`,
+    // Default tests to zh-TW since the legacy assertions all pin to
+    // the original zh-TW strings (titles, field names, etc.). Locale-
+    // sensitive tests can override explicitly.
+    locale: "zh-TW",
     signups: positions.map((_p, i) => ({
       userId: `u${i}`,
       displayName: `P${i}`,
@@ -189,6 +193,9 @@ export function buildDealtGame(opts: {
     guildId: opts.guildId ?? "g",
     channelId,
     hostUserId: opts.hostUserId ?? `u0`,
+    // Default tests to zh-TW — same as buildGame; legacy assertions
+    // pin to the original zh-TW strings.
+    locale: "zh-TW",
     signups: Array.from({ length: opts.signupSize }, (_, i) => ({
       userId: `u${i}`,
       displayName: `P${i}`,

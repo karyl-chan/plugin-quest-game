@@ -57,7 +57,7 @@ export async function openPrivateVote(
   const sent = await sendMessage({
     channelId: state.channelId,
     embeds: [renderPrivateVoteEmbed(state, missionMembers, 0)],
-    components: privateVoteComponents(),
+    components: privateVoteComponents(state.locale),
   });
   if (!sent) {
     runtime().log.error("quest-game: failed to open privateVote stage", {
@@ -103,6 +103,11 @@ async function handlePrivateOpen(
   if (!me || !game.current.missionMembers.includes(me.index)) return null;
   if (game.current.votes[ctx.userId]) return null;
   const isEvil = factionOf(me) === "mordred";
+  // Use the game's locale (pinned at start time) so every player's
+  // ephemeral matches the public board's language. A click from a
+  // user with a different Discord client locale doesn't switch
+  // languages mid-table.
+  const locale = game.locale;
   const row: DiscordActionRow = {
     type: 1,
     components: [
@@ -111,20 +116,20 @@ async function handlePrivateOpen(
         // Neutral style — the 🔵 / 🔴 label emoji carries the meaning.
         style: 2,
         custom_id: componentCustomId(PLUGIN_KEY, "priv", "s"),
-        label: t(undefined, "stage.privateVote.success"),
+        label: t(locale, "stage.privateVote.success"),
       },
       {
         type: 2,
         style: 2,
         custom_id: componentCustomId(PLUGIN_KEY, "priv", "f"),
-        label: t(undefined, "stage.privateVote.fail"),
+        label: t(locale, "stage.privateVote.fail"),
         disabled: !isEvil,
       },
     ],
   };
   await followupEphemeral({
     interactionToken: ctx.interactionToken,
-    content: t(undefined, "stage.privateVote.ephemeralPrompt"),
+    content: t(locale, "stage.privateVote.ephemeralPrompt"),
     components: [row],
   });
   return null;
@@ -161,7 +166,7 @@ export async function applyPrivateBallot(
         Object.keys(game.current.votes).length,
       ),
     ],
-    components: privateVoteComponents(),
+    components: privateVoteComponents(game.locale),
   });
   if (
     Object.keys(game.current.votes).length === game.current.missionMembers.length
@@ -245,18 +250,18 @@ export function renderPrivateVoteEmbed(
     .join("\n");
   const fields: Array<{ name: string; value: string; inline?: boolean }> = [
     {
-      name: t(undefined, "stage.board.fieldProgress"),
+      name: t(state.locale, "stage.board.fieldProgress"),
       value: missionProgressLine(state),
       inline: false,
     },
     {
-      name: t(undefined, "stage.privateVote.fieldRoster"),
+      name: t(state.locale, "stage.privateVote.fieldRoster"),
       value: rosterLines || "—",
       inline: false,
     },
     {
-      name: t(undefined, "stage.privateVote.fieldVotes"),
-      value: t(undefined, "stage.privateVote.voted", {
+      name: t(state.locale, "stage.privateVote.fieldVotes"),
+      value: t(state.locale, "stage.privateVote.voted", {
         n: voted,
         total: missionMembers.length,
       }),
@@ -266,13 +271,13 @@ export function renderPrivateVoteEmbed(
   if (currentRoundNeeds2Fail(state)) {
     fields.push({
       name: "⚠",
-      value: t(undefined, "stage.privateVote.need2Fail"),
+      value: t(state.locale, "stage.privateVote.need2Fail"),
       inline: false,
     });
   }
   return {
-    title: t(undefined, "stage.privateVote.title", { round: state.round }),
-    description: t(undefined, "stage.privateVote.content", {
+    title: t(state.locale, "stage.privateVote.title", { round: state.round }),
+    description: t(state.locale, "stage.privateVote.content", {
       leader: `**${leaderPlayer.displayName}**`,
       num: missionMembers.length,
     }),
@@ -294,16 +299,16 @@ function renderPrivateVoteResolved(
     .join("\n");
   return {
     title: passed
-      ? t(undefined, "stage.privateVote.resultSuccess", { round: state.round })
-      : t(undefined, "stage.privateVote.resultFail", { round: state.round }),
+      ? t(state.locale, "stage.privateVote.resultSuccess", { round: state.round })
+      : t(state.locale, "stage.privateVote.resultFail", { round: state.round }),
     description:
       failCount > 0
-        ? t(undefined, "stage.privateVote.failCount", { n: failCount })
-        : t(undefined, "stage.privateVote.noFails"),
+        ? t(state.locale, "stage.privateVote.failCount", { n: failCount })
+        : t(state.locale, "stage.privateVote.noFails"),
     color: EMBED_COLOR,
     fields: [
       {
-        name: t(undefined, "stage.privateVote.fieldRoster"),
+        name: t(state.locale, "stage.privateVote.fieldRoster"),
         value: rosterLines || "—",
         inline: false,
       },
@@ -311,7 +316,9 @@ function renderPrivateVoteResolved(
   };
 }
 
-export function privateVoteComponents(): DiscordActionRow[] {
+export function privateVoteComponents(
+  locale: GameState["locale"],
+): DiscordActionRow[] {
   return [
     {
       type: 1,
@@ -320,10 +327,10 @@ export function privateVoteComponents(): DiscordActionRow[] {
           type: 2,
           style: 1,
           custom_id: componentCustomId(PLUGIN_KEY, "priv", "open"),
-          label: t(undefined, "stage.privateVote.openVote"),
+          label: t(locale, "stage.privateVote.openVote"),
         },
       ],
     },
-    viewCardButtonRow(),
+    viewCardButtonRow(locale),
   ];
 }

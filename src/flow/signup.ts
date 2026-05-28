@@ -6,7 +6,7 @@ import {
   type ComponentReply,
 } from "@karyl-chan/plugin-sdk";
 import { EMBED_COLOR, PLUGIN_KEY } from "../constants.js";
-import { t } from "../i18n/index.js";
+import { resolveLocale, t, type Locale } from "../i18n/index.js";
 import {
   getGame,
   removeGame,
@@ -44,6 +44,13 @@ interface Signup {
   channelId: string;
   hostUserId: string;
   hostDisplayName: string;
+  /**
+   * Locale captured from the host's `/quest-game start` interaction.
+   * Drives every sign-up board repaint AND becomes the GameState's
+   * locale once `handleStartClick` runs — so the table's locale is
+   * pinned to the host's choice from the moment they ran the slash.
+   */
+  locale: Locale;
   messageId: string;
   players: Map<string, string>; // userId → displayName, insertion-ordered
   /**
@@ -115,8 +122,9 @@ export async function startSignup(
   } = {},
 ): Promise<CommandReply> {
   return withChannelLock(channelId, async () => {
+    const locale = resolveLocale(ctx);
     if (getGame(channelId) || signups.has(channelId)) {
-      return t(undefined, "error.alreadyRunning");
+      return t(locale, "error.alreadyRunning");
     }
     const roleToggles = opts.roleToggles ?? DEFAULT_ROLE_TOGGLES;
     const lakeEnabled = opts.lakeEnabled ?? true;
@@ -139,12 +147,12 @@ export async function startSignup(
     const initialTotal = 1 + initialNpcs.length;
     const sent = await sendMessage({
       channelId,
-      embeds: [renderSignupEmbed(hostMention, [ctx.userDisplayName], {
+      embeds: [renderSignupEmbed(locale, hostMention, [ctx.userDisplayName], {
         npcNames: initialNpcs.map((n) => n.displayName),
         roleToggles,
         lakeEnabled,
       })],
-      components: signupComponents({
+      components: signupComponents(locale, {
         canStart:
           initialTotal >= MIN_PLAYERS && initialTotal <= MAX_PLAYERS,
         canAddNpc: initialTotal < MAX_PLAYERS,
@@ -159,6 +167,7 @@ export async function startSignup(
       channelId,
       hostUserId: ctx.userId,
       hostDisplayName: ctx.userDisplayName,
+      locale,
       messageId: sent.id,
       players: new Map([[ctx.userId, ctx.userDisplayName]]),
       npcs: initialNpcs,
@@ -309,6 +318,7 @@ async function handleStartClick(
     guildId: signup.guildId,
     channelId: signup.channelId,
     hostUserId: signup.hostUserId,
+    locale: signup.locale,
     // Humans first, then NPCs — `deal()` reshuffles before assigning
     // positions, so insertion order doesn't bias role distribution.
     signups: [
@@ -337,7 +347,7 @@ async function handleStartClick(
     messageId: signup.messageId,
     embeds: [
       {
-        title: t(undefined, "stage.signup.title"),
+        title: t(game.locale, "stage.signup.title"),
         description: `▶ ${game.players
           .map((p, i) => `\`${i + 1}\` ${p.displayName}`)
           .join("\n")}`,
@@ -362,8 +372,8 @@ async function handleCancelClick(
     messageId: signup.messageId,
     embeds: [
       {
-        title: t(undefined, "stage.signup.title"),
-        description: t(undefined, "stage.signup.cancelled"),
+        title: t(signup.locale, "stage.signup.title"),
+        description: t(signup.locale, "stage.signup.cancelled"),
         color: EMBED_COLOR,
       },
     ],
@@ -380,20 +390,22 @@ async function handleCancelClick(
  * ✗ = replaced by a powerless stand-in (or, for the lake, off).
  */
 function renderRulesValue(
+  locale: Locale,
   roleToggles: RoleToggles,
   lakeEnabled: boolean,
 ): string {
   const mark = (on: boolean): string => (on ? "✓" : "✗");
   const roleLine = (["morgana", "percival", "mordred", "oberon"] as const)
-    .map((pos) => `${t(undefined, ROLES[pos].nameKey)} ${mark(roleToggles[pos])}`)
+    .map((pos) => `${t(locale, ROLES[pos].nameKey)} ${mark(roleToggles[pos])}`)
     .join("　");
   const lakeLine =
-    `${t(undefined, "stage.signup.fieldLady")} ${mark(lakeEnabled)}` +
-    `${lakeEnabled ? t(undefined, "stage.signup.lakeNote") : ""}`;
+    `${t(locale, "stage.signup.fieldLady")} ${mark(lakeEnabled)}` +
+    `${lakeEnabled ? t(locale, "stage.signup.lakeNote") : ""}`;
   return `${roleLine}\n${lakeLine}`;
 }
 
 function renderSignupEmbed(
+  locale: Locale,
   hostMention: string,
   names: string[],
   opts: {
@@ -406,14 +418,14 @@ function renderSignupEmbed(
   const total = names.length + npcNames.length;
   const fields: Array<{ name: string; value: string; inline?: boolean }> = [
     {
-      name: t(undefined, "stage.signup.fieldCount"),
+      name: t(locale, "stage.signup.fieldCount"),
       value: String(total),
       inline: true,
     },
   ];
   if (npcNames.length > 0) {
     fields.push({
-      name: t(undefined, "stage.signup.fieldNpcCount"),
+      name: t(locale, "stage.signup.fieldNpcCount"),
       value: String(npcNames.length),
       inline: true,
     });
@@ -421,38 +433,41 @@ function renderSignupEmbed(
   // Rule settings (optional roles + lake) are fixed at `/quest-game start`
   // time — shown read-only so joiners see the table they're entering.
   fields.push({
-    name: t(undefined, "stage.signup.fieldRules"),
-    value: renderRulesValue(opts.roleToggles, opts.lakeEnabled),
+    name: t(locale, "stage.signup.fieldRules"),
+    value: renderRulesValue(locale, opts.roleToggles, opts.lakeEnabled),
     inline: false,
   });
   if (names.length > 0) {
     fields.push({
-      name: t(undefined, "stage.signup.fieldRoster"),
+      name: t(locale, "stage.signup.fieldRoster"),
       value: names.map((n) => `\`${n}\``).join("\n"),
       inline: false,
     });
   }
   if (npcNames.length > 0) {
-    const suffix = t(undefined, "stage.signup.npcLineSuffix");
+    const suffix = t(locale, "stage.signup.npcLineSuffix");
     fields.push({
-      name: t(undefined, "stage.signup.fieldNpcRoster"),
+      name: t(locale, "stage.signup.fieldNpcRoster"),
       value: npcNames.map((n) => `\`${n}\`${suffix}`).join("\n"),
       inline: false,
     });
   }
   return {
-    title: t(undefined, "stage.signup.title"),
-    description: t(undefined, "stage.signup.content", { host: hostMention }),
+    title: t(locale, "stage.signup.title"),
+    description: t(locale, "stage.signup.content", { host: hostMention }),
     color: EMBED_COLOR,
     fields,
   };
 }
 
-function signupComponents(opts: {
-  canStart: boolean;
-  canAddNpc: boolean;
-  canRemoveNpc: boolean;
-}) {
+function signupComponents(
+  locale: Locale,
+  opts: {
+    canStart: boolean;
+    canAddNpc: boolean;
+    canRemoveNpc: boolean;
+  },
+) {
   const row1: Array<{
     type: 2;
     style: 1 | 2 | 3 | 4 | 5;
@@ -464,26 +479,26 @@ function signupComponents(opts: {
       type: 2 as const,
       style: 3 as const,
       custom_id: componentCustomId(PLUGIN_KEY, "sig", "join"),
-      label: t(undefined, "stage.signup.join"),
+      label: t(locale, "stage.signup.join"),
     },
     {
       type: 2 as const,
       style: 2 as const,
       custom_id: componentCustomId(PLUGIN_KEY, "sig", "leave"),
-      label: t(undefined, "stage.signup.leave"),
+      label: t(locale, "stage.signup.leave"),
     },
     {
       type: 2 as const,
       style: 1 as const,
       custom_id: componentCustomId(PLUGIN_KEY, "sig", "start"),
-      label: t(undefined, "stage.signup.start"),
+      label: t(locale, "stage.signup.start"),
       disabled: !opts.canStart,
     },
     {
       type: 2 as const,
       style: 4 as const,
       custom_id: componentCustomId(PLUGIN_KEY, "sig", "cancel"),
-      label: t(undefined, "stage.signup.cancel"),
+      label: t(locale, "stage.signup.cancel"),
     },
   ];
   // NPC +/− on their own row so the primary controls stay in row 1.
@@ -499,14 +514,14 @@ function signupComponents(opts: {
       type: 2 as const,
       style: 2 as const,
       custom_id: componentCustomId(PLUGIN_KEY, "sig", "npc+"),
-      label: t(undefined, "stage.signup.npcAdd"),
+      label: t(locale, "stage.signup.npcAdd"),
       disabled: !opts.canAddNpc,
     },
     {
       type: 2 as const,
       style: 2 as const,
       custom_id: componentCustomId(PLUGIN_KEY, "sig", "npc-"),
-      label: t(undefined, "stage.signup.npcRemove"),
+      label: t(locale, "stage.signup.npcRemove"),
       disabled: !opts.canRemoveNpc,
     },
   ];
@@ -527,13 +542,13 @@ async function refreshSignupMessage(channelId: string): Promise<void> {
     channelId,
     messageId: signup.messageId,
     embeds: [
-      renderSignupEmbed(hostMention, names, {
+      renderSignupEmbed(signup.locale, hostMention, names, {
         roleToggles: signup.roleToggles,
         lakeEnabled: signup.lakeEnabled,
         npcNames,
       }),
     ],
-    components: signupComponents({
+    components: signupComponents(signup.locale, {
       canStart: total >= MIN_PLAYERS && total <= MAX_PLAYERS,
       canAddNpc: total < MAX_PLAYERS,
       canRemoveNpc: signup.npcs.length > 0,

@@ -154,23 +154,23 @@ function renderAppointEmbed(
 ) {
   const num = currentMissionSize(state);
   return {
-    title: t(undefined, "stage.appoint.title", { round: state.round }),
-    description: t(undefined, "stage.appoint.content", {
+    title: t(state.locale, "stage.appoint.title", { round: state.round }),
+    description: t(state.locale, "stage.appoint.content", {
       leader: `**${leaderName}**`,
       num,
     }),
     color: EMBED_COLOR,
     fields: [
       {
-        name: t(undefined, "stage.board.fieldProgress"),
+        name: t(state.locale, "stage.board.fieldProgress"),
         value: missionProgressLine(state),
         inline: false,
       },
       {
-        name: t(undefined, "stage.appoint.fieldSelected"),
+        name: t(state.locale, "stage.appoint.fieldSelected"),
         value:
           selectedNames.length === 0
-            ? t(undefined, "stage.appoint.selectedNone")
+            ? t(state.locale, "stage.appoint.selectedNone")
             : selectedNames.map((n) => `\`${n}\``).join("\n"),
         inline: false,
       },
@@ -203,12 +203,12 @@ function appointComponents(
         type: 2,
         style: 1,
         custom_id: componentCustomId(PLUGIN_KEY, "appt", "c"),
-        label: t(undefined, "stage.appoint.confirm"),
+        label: t(state.locale, "stage.appoint.confirm"),
         disabled: selected.length !== num,
       },
     ],
   });
-  rows.push(viewCardButtonRow());
+  rows.push(viewCardButtonRow(state.locale));
   return rows;
 }
 

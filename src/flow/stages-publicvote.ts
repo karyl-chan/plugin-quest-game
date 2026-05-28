@@ -45,7 +45,7 @@ export async function openPublicVote(
   const sent = await sendMessage({
     channelId: state.channelId,
     embeds: [renderPublicVoteEmbed(state, missionMembers, {})],
-    components: publicVoteComponents(),
+    components: publicVoteComponents(state.locale),
   });
   if (!sent) {
     runtime().log.error("quest-game: failed to open publicVote stage", {
@@ -112,7 +112,7 @@ export async function applyPublicVote(
     embeds: [
       renderPublicVoteEmbed(game, game.current.missionMembers, game.current.votes),
     ],
-    components: publicVoteComponents(),
+    components: publicVoteComponents(game.locale),
   });
 
   // Everyone voted? Tally + transition.
@@ -201,18 +201,18 @@ export function renderPublicVoteEmbed(
   const voted = Object.keys(votes).length;
   const fields: Array<{ name: string; value: string; inline?: boolean }> = [
     {
-      name: t(undefined, "stage.board.fieldProgress"),
+      name: t(state.locale, "stage.board.fieldProgress"),
       value: missionProgressLine(state),
       inline: false,
     },
     {
-      name: t(undefined, "stage.publicVote.fieldRoster"),
+      name: t(state.locale, "stage.publicVote.fieldRoster"),
       value: rosterLines || "—",
       inline: false,
     },
     {
-      name: t(undefined, "stage.publicVote.fieldVotes"),
-      value: t(undefined, "stage.publicVote.voted", {
+      name: t(state.locale, "stage.publicVote.fieldVotes"),
+      value: t(state.locale, "stage.publicVote.voted", {
         n: voted,
         total: state.players.length,
       }),
@@ -221,16 +221,16 @@ export function renderPublicVoteEmbed(
   ];
   if (state.consecutiveRejections > 0) {
     fields.push({
-      name: t(undefined, "stage.publicVote.fieldRejections"),
-      value: t(undefined, "stage.publicVote.rejectionWarn", {
+      name: t(state.locale, "stage.publicVote.fieldRejections"),
+      value: t(state.locale, "stage.publicVote.rejectionWarn", {
         n: state.consecutiveRejections,
       }),
       inline: true,
     });
   }
   return {
-    title: t(undefined, "stage.publicVote.title", { round: state.round }),
-    description: t(undefined, "stage.publicVote.content", {
+    title: t(state.locale, "stage.publicVote.title", { round: state.round }),
+    description: t(state.locale, "stage.publicVote.content", {
       leader: `**${leaderPlayer.displayName}**`,
       num: missionMembers.length,
     }),
@@ -262,38 +262,40 @@ function renderPublicVoteResolved(
     })
     .join("\n");
   return {
-    title: t(undefined, "stage.publicVote.title", { round: state.round }),
-    description: t(undefined, "stage.publicVote.content", {
+    title: t(state.locale, "stage.publicVote.title", { round: state.round }),
+    description: t(state.locale, "stage.publicVote.content", {
       leader: `**${leaderPlayer.displayName}**`,
       num: missionMembers.length,
     }),
     color: EMBED_COLOR,
     fields: [
       {
-        name: t(undefined, "stage.publicVote.fieldRoster"),
+        name: t(state.locale, "stage.publicVote.fieldRoster"),
         value: rosterLines || "—",
         inline: false,
       },
       {
-        name: t(undefined, "stage.publicVote.fieldBallots"),
+        name: t(state.locale, "stage.publicVote.fieldBallots"),
         value: ballotLines || "—",
         inline: false,
       },
       {
-        name: t(undefined, "stage.publicVote.fieldResult"),
+        name: t(state.locale, "stage.publicVote.fieldResult"),
         value:
           (passed
-            ? `✅ ${t(undefined, "stage.publicVote.passed")}`
-            : `❌ ${t(undefined, "stage.publicVote.rejected")}`) +
+            ? `✅ ${t(state.locale, "stage.publicVote.passed")}`
+            : `❌ ${t(state.locale, "stage.publicVote.rejected")}`) +
           " · " +
-          t(undefined, "stage.publicVote.tally", { yes, no }),
+          t(state.locale, "stage.publicVote.tally", { yes, no }),
         inline: false,
       },
     ],
   };
 }
 
-export function publicVoteComponents(): DiscordActionRow[] {
+export function publicVoteComponents(
+  locale: GameState["locale"],
+): DiscordActionRow[] {
   return [
     {
       type: 1,
@@ -303,16 +305,16 @@ export function publicVoteComponents(): DiscordActionRow[] {
           // Neutral style — the ✅ / ❌ label emoji carries the meaning.
           style: 2,
           custom_id: componentCustomId(PLUGIN_KEY, "pub", "y"),
-          label: t(undefined, "stage.publicVote.approve"),
+          label: t(locale, "stage.publicVote.approve"),
         },
         {
           type: 2,
           style: 2,
           custom_id: componentCustomId(PLUGIN_KEY, "pub", "n"),
-          label: t(undefined, "stage.publicVote.reject"),
+          label: t(locale, "stage.publicVote.reject"),
         },
       ],
     },
-    viewCardButtonRow(),
+    viewCardButtonRow(locale),
   ];
 }

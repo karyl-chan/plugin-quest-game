@@ -284,7 +284,7 @@ async function performPublicVote(state: GameState, npc: Player): Promise<void> {
         state.current.votes,
       ),
     ],
-    components: publicVoteComponents(),
+    components: publicVoteComponents(state.locale),
   });
   if (
     Object.keys(state.current.votes).length === state.players.length
@@ -320,7 +320,7 @@ async function performPrivateVote(
         Object.keys(state.current.votes).length,
       ),
     ],
-    components: privateVoteComponents(),
+    components: privateVoteComponents(state.locale),
   });
   if (
     Object.keys(state.current.votes).length ===
@@ -357,6 +357,7 @@ async function performLake(state: GameState, npc: Player): Promise<void> {
     messageId,
     npc.displayName,
     target.displayName,
+    state.locale,
   );
   state.current = null;
   const verdict = evaluateVerdict(state);
@@ -392,11 +393,11 @@ async function performAssassinate(
     embeds: [
       {
         color: EMBED_COLOR,
-        title: t(undefined, "stage.assassinate.title"),
-        description: t(undefined, "stage.assassinate.result", {
+        title: t(state.locale, "stage.assassinate.title"),
+        description: t(state.locale, "stage.assassinate.result", {
           assassin: `**${npc.displayName}**`,
           target: `**${target.displayName}**`,
-          role: t(undefined, ROLES[target.position].nameKey),
+          role: t(state.locale, ROLES[target.position].nameKey),
         }),
       },
     ],

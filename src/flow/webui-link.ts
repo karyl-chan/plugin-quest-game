@@ -1,6 +1,6 @@
 import type { DiscordActionRow } from "./discord.js";
 import { runtime } from "./runtime.js";
-import { t } from "../i18n/index.js";
+import { t, type Locale } from "../i18n/index.js";
 
 /**
  * Mint a per-user `session` JWT and build the "open game board"
@@ -16,6 +16,7 @@ export async function buildWebuiLinkRow(
   guildId: string,
   channelId: string,
   sessionId: string,
+  locale: Locale,
 ): Promise<DiscordActionRow | null> {
   const res = (await runtime().botRpc("/api/plugin/auth.session", {
     user_id: userId,
@@ -32,7 +33,7 @@ export async function buildWebuiLinkRow(
       {
         type: 2,
         style: 5,
-        label: `🎲 ${t(undefined, "webui.openButton")}`,
+        label: `🎲 ${t(locale, "webui.openButton")}`,
         url,
       },
     ],

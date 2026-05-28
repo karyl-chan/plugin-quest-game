@@ -48,7 +48,7 @@ export function assassinateBoardPayload(state: GameState): {
   const assassin = state.players.find((p) => p.position === "assassin");
   if (!assassin) return null;
   return {
-    embeds: [renderAssassinateEmbed(assassin.displayName)],
+    embeds: [renderAssassinateEmbed(state, assassin.displayName)],
     components: assassinateComponents(state),
   };
 }
@@ -125,11 +125,11 @@ export async function applyAssassinate(
     embeds: [
       {
         color: EMBED_COLOR,
-        title: t(undefined, "stage.assassinate.title"),
-        description: t(undefined, "stage.assassinate.result", {
+        title: t(game.locale, "stage.assassinate.title"),
+        description: t(game.locale, "stage.assassinate.result", {
           assassin: `**${me.displayName}**`,
           target: `**${target.displayName}**`,
-          role: t(undefined, ROLES[target.position].nameKey),
+          role: t(game.locale, ROLES[target.position].nameKey),
         }),
       },
     ],
@@ -141,10 +141,10 @@ export async function applyAssassinate(
 
 // ── rendering ──────────────────────────────────────────────────────────
 
-function renderAssassinateEmbed(assassinName: string) {
+function renderAssassinateEmbed(state: GameState, assassinName: string) {
   return {
-    title: t(undefined, "stage.assassinate.title"),
-    description: t(undefined, "stage.assassinate.content", {
+    title: t(state.locale, "stage.assassinate.title"),
+    description: t(state.locale, "stage.assassinate.content", {
       assassin: `**${assassinName}**`,
     }),
     color: EMBED_COLOR,
@@ -167,6 +167,6 @@ function assassinateComponents(state: GameState): DiscordActionRow[] {
   for (let i = 0; i < buttons.length; i += 5) {
     rows.push({ type: 1, components: buttons.slice(i, i + 5) });
   }
-  rows.push(viewCardButtonRow());
+  rows.push(viewCardButtonRow(state.locale));
   return rows;
 }

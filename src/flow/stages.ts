@@ -4,7 +4,7 @@ import {
   type ComponentReply,
 } from "@karyl-chan/plugin-sdk";
 import { EMBED_COLOR, PLUGIN_KEY } from "../constants.js";
-import { t } from "../i18n/index.js";
+import { t, type Locale } from "../i18n/index.js";
 import {
   leader,
   playerByIndex,
@@ -88,8 +88,8 @@ export async function renderDealReveal(
   const vision = buildVision(state, viewer);
   const legend =
     viewer.position === "percival"
-      ? t(undefined, "stage.deal.legendPercival")
-      : t(undefined, "stage.deal.legend");
+      ? t(state.locale, "stage.deal.legendPercival")
+      : t(state.locale, "stage.deal.legend");
   const visionLines = vision.map((row) => {
     const marker = markerEmoji(row.marker);
     return `${seatEmoji(row.seat)} ${marker} ${row.player.displayName}`;
@@ -130,11 +130,11 @@ export async function renderDealReveal(
   return {
     embed: {
       color: EMBED_COLOR,
-      title: t(undefined, "stage.deal.title"),
-      description: t(undefined, flavorKey) + "\n\n" + legend,
+      title: t(state.locale, "stage.deal.title"),
+      description: t(state.locale, flavorKey) + "\n\n" + legend,
       fields: [
         {
-          name: t(undefined, "stage.deal.vision"),
+          name: t(state.locale, "stage.deal.vision"),
           value: visionLines.join("\n"),
           inline: false,
         },
@@ -161,7 +161,7 @@ export async function handleDealClick(
   if (tail === "help") {
     await followupEphemeral({
       interactionToken: ctx.interactionToken,
-      embeds: [renderRoleHelp(viewer)],
+      embeds: [renderRoleHelp(game.locale, viewer)],
     });
     return null;
   }
@@ -175,13 +175,14 @@ export async function handleDealClick(
     game.guildId,
     game.channelId,
     game.sessionId,
+    game.locale,
   );
   await followupEphemeral({
     interactionToken: ctx.interactionToken,
     embeds: [reveal.embed],
     components: linkRow
-      ? [...dealRevealComponents(), linkRow]
-      : dealRevealComponents(),
+      ? [...dealRevealComponents(game.locale), linkRow]
+      : dealRevealComponents(game.locale),
     ...(reveal.attachment ? { attachments: [reveal.attachment] } : {}),
   });
   return null;
@@ -194,7 +195,7 @@ export async function handleDealClick(
  * at any time (and the row is per-viewer ephemeral, so it can't be
  * triggered by anyone else).
  */
-export function dealRevealComponents(): DiscordActionRow[] {
+export function dealRevealComponents(locale: Locale): DiscordActionRow[] {
   return [
     {
       type: 1,
@@ -203,7 +204,7 @@ export function dealRevealComponents(): DiscordActionRow[] {
           type: 2,
           style: 2,
           custom_id: componentCustomId(PLUGIN_KEY, "deal", "help"),
-          label: t(undefined, "stage.deal.helpButton"),
+          label: t(locale, "stage.deal.helpButton"),
         },
       ],
     },
@@ -216,22 +217,25 @@ export function dealRevealComponents(): DiscordActionRow[] {
  * `role.description.*` and the `markerLegendLines` derivation so the
  * Percival player sees the 🟣 line but a loyal doesn't.
  */
-export function renderRoleHelp(viewer: Player): {
+export function renderRoleHelp(
+  locale: Locale,
+  viewer: Player,
+): {
   color: number;
   title: string;
   description: string;
   fields: Array<{ name: string; value: string; inline?: boolean }>;
 } {
-  const roleName = t(undefined, ROLES[viewer.position].nameKey);
+  const roleName = t(locale, ROLES[viewer.position].nameKey);
   const descKey = `role.description.${viewer.position}` as const;
   return {
     color: EMBED_COLOR,
-    title: t(undefined, "stage.deal.helpTitle", { role: roleName }),
-    description: t(undefined, descKey),
+    title: t(locale, "stage.deal.helpTitle", { role: roleName }),
+    description: t(locale, descKey),
     fields: [
       {
-        name: t(undefined, "stage.deal.markerSection"),
-        value: markerLegendLines(viewer.position).join("\n"),
+        name: t(locale, "stage.deal.markerSection"),
+        value: markerLegendLines(locale, viewer.position).join("\n"),
         inline: false,
       },
     ],
@@ -246,23 +250,23 @@ export function renderRoleHelp(viewer: Player): {
  * non-Oberon evil get red (with the Oberon-invisible caveat). Every
  * legend ends with the unknown marker for completeness.
  */
-function markerLegendLines(position: Position): string[] {
+function markerLegendLines(locale: Locale, position: Position): string[] {
   const lines: string[] = [
-    `${markerEmoji("self")} ${t(undefined, "marker.self")}`,
+    `${markerEmoji("self")} ${t(locale, "marker.self")}`,
   ];
   if (position === "merlin") {
-    lines.push(`${markerEmoji("red")} ${t(undefined, "marker.merlinRed")}`);
+    lines.push(`${markerEmoji("red")} ${t(locale, "marker.merlinRed")}`);
   } else if (position === "percival") {
-    lines.push(`${markerEmoji("purple")} ${t(undefined, "marker.percivalPurple")}`);
+    lines.push(`${markerEmoji("purple")} ${t(locale, "marker.percivalPurple")}`);
   } else if (
     position === "assassin" ||
     position === "morgana" ||
     position === "mordred" ||
     position === "minion"
   ) {
-    lines.push(`${markerEmoji("red")} ${t(undefined, "marker.evilRed")}`);
+    lines.push(`${markerEmoji("red")} ${t(locale, "marker.evilRed")}`);
   }
-  lines.push(`${markerEmoji("unknown")} ${t(undefined, "marker.unknown")}`);
+  lines.push(`${markerEmoji("unknown")} ${t(locale, "marker.unknown")}`);
   return lines;
 }
 
@@ -300,7 +304,7 @@ export async function renderCurrentStageBoard(state: GameState): Promise<{
         embeds: [
           renderPublicVoteEmbed(state, cur.missionMembers, cur.votes),
         ],
-        components: publicVoteComponents(),
+        components: publicVoteComponents(state.locale),
       };
     case "privateVote":
       return {
@@ -311,7 +315,7 @@ export async function renderCurrentStageBoard(state: GameState): Promise<{
             Object.keys(cur.votes).length,
           ),
         ],
-        components: privateVoteComponents(),
+        components: privateVoteComponents(state.locale),
       };
     case "lake":
       return lakeBoardPayload(state);
