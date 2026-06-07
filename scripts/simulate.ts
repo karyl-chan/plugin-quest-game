@@ -37,7 +37,7 @@ import { openPrivateVote } from "../src/flow/stages-privatevote.js";
 import { openLake } from "../src/flow/stages-lake.js";
 import { openAssassinate } from "../src/flow/stages-assassinate.js";
 import { buildVision } from "../src/game/vision.js";
-import type { ComponentContext } from "@karyl-chan/plugin-sdk";
+import { createPluginRpc, type ComponentContext } from "@karyl-chan/plugin-sdk";
 import type { Position } from "../src/game/roles.js";
 
 interface ScenarioAction {
@@ -96,7 +96,12 @@ const rpcLog: { path: string; body: unknown }[] = [];
 function installRuntime(): void {
   messageCounter = 0;
   rpcLog.length = 0;
-  const botRpc: BotRpc = async (path, body) => {
+  // Single call tracker shared by the legacy botRpc and the typed
+  // discord/voice facades, mirroring the unit-test harness. The flow
+  // code sends/edits messages through `runtime().discord.messages.*`
+  // (Lockdown L-2), so the facade MUST be wired or every stage
+  // transition throws and the game never advances.
+  const callRpc = async (path: string, body?: unknown): Promise<unknown> => {
     rpcLog.push({ path, body });
     if (path === "/api/plugin/messages.send") {
       messageCounter++;
@@ -106,8 +111,18 @@ function installRuntime(): void {
     }
     return { ok: true };
   };
+  const botRpc: BotRpc = async (path, body) => {
+    try {
+      return await callRpc(path, body);
+    } catch {
+      return null;
+    }
+  };
+  const rpc = createPluginRpc(callRpc);
   wireRuntime({
     botRpc,
+    discord: rpc.discord,
+    voice: rpc.voice,
     log: {
       info: () => undefined,
       warn: () => undefined,
@@ -130,6 +145,9 @@ function buildGame(s: Scenario): GameState {
     guildId: "g",
     channelId,
     hostUserId: "u0",
+    // Pin zh-TW so the ending-embed title assertions below match the
+    // zh-TW strings (an unset locale falls back to en — "Blue wins").
+    locale: "zh-TW",
     signups: s.positions.map((_p, i) => ({
       userId: `u${i}`,
       displayName: `P${i}`,
@@ -159,6 +177,10 @@ function fakeContext(args: {
   componentId: string;
   tail: string;
 }): ComponentContext {
+  // Component handlers read only ctx's scalar fields + reply via
+  // runtime(); the discord/voice facades are wired for type-shape
+  // parity with the real SDK context (a no-op caller is fine).
+  const ctxRpc = createPluginRpc(async () => null);
   return {
     pluginKey: "karyl-quest-game",
     customId: `kc:karyl-quest-game:${args.componentId}${
@@ -182,6 +204,8 @@ function fakeContext(args: {
     },
     publicBaseUrl: "http://test.local",
     botRpc: async () => null,
+    discord: ctxRpc.discord,
+    voice: ctxRpc.voice,
   };
 }
 
@@ -295,7 +319,8 @@ async function runScenario(s: Scenario): Promise<void> {
       .pop();
     if (!endingMsg) throw new Error(`no ending embed observed`);
     const title = endingMsg.embeds![0].title ?? "";
-    const winner = title.includes("亞瑟") ? "arthur" : "mordred";
+    // Arthur win → "🏆 藍方勝利"; Mordred win → "🗡 紅方勝利".
+    const winner = title.includes("藍方") ? "arthur" : "mordred";
     assertEq("finalWinner", winner, exp.finalWinner);
   }
   if (exp.missionResults !== undefined) {
