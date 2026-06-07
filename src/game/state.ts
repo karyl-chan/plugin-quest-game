@@ -160,22 +160,16 @@ export interface GameState {
 }
 
 export interface MvpStats {
-  /** Times this player cast a `fail` ballot on a mission. */
+  /**
+   * Times this player cast a `fail` ballot on a mission. This is the
+   * ONE MVP signal that can't be reconstructed from the public event
+   * timeline — `mission-result` only records the aggregate fail count,
+   * never who cast a fail ballot — so it's tracked here server-side.
+   * Every other MVP signal (rejections, proposals, mission membership,
+   * approve-good/bad) is derived from `state.events` at scoring time
+   * by `computeMvp`; see `aggregateMvpSignals`.
+   */
   failVotes: Record<string, number>;
-  /**
-   * Times this player rejected (`no`) a public proposal whose
-   * mission roster included at least one Mordred-faction member.
-   * Ground truth — recorded server-side; the player may or may not
-   * have known the team contained a red player.
-   */
-  rejectedRedTeam: Record<string, number>;
-  /**
-   * Times this player, as leader, confirmed a mission roster that
-   * included at least one Mordred-faction member. Subtracted from
-   * `rejectedRedTeam` at MVP time so a leader who keeps proposing
-   * red teams doesn't farm Arthur-side MVP off their own rejections.
-   */
-  proposedRedTeam: Record<string, number>;
 }
 
 export function newGameState(opts: {
@@ -222,8 +216,6 @@ export function newGameState(opts: {
     startedAt: Date.now(),
     mvpStats: {
       failVotes: {},
-      rejectedRedTeam: {},
-      proposedRedTeam: {},
     },
     events: [],
     eventSeq: 0,
@@ -391,47 +383,12 @@ export function isNpc(player: Player): boolean {
 
 // ── MVP scoring ──────────────────────────────────────────────────
 
-function teamHasRed(state: GameState, missionMembers: number[]): boolean {
-  for (const seat of missionMembers) {
-    const p = state.players[seat];
-    if (p && factionOf(p) === "mordred") return true;
-  }
-  return false;
-}
-
-/**
- * Increment a leader's "proposed a red team" counter when they
- * confirm a mission roster containing at least one Mordred-faction
- * member. Used to discount Arthur-side MVP for someone who farms
- * rejections by also proposing dubious teams themselves.
- */
-export function recordMvpProposal(
-  state: GameState,
-  leader: Player,
-  missionMembers: number[],
-): void {
-  if (!teamHasRed(state, missionMembers)) return;
-  state.mvpStats.proposedRedTeam[leader.userId] =
-    (state.mvpStats.proposedRedTeam[leader.userId] ?? 0) + 1;
-}
-
-/**
- * Count a public-vote rejection of a team containing at least one
- * Mordred-faction member. Drives the Arthur-side MVP score.
- */
-export function recordMvpRejection(
-  state: GameState,
-  voter: Player,
-  missionMembers: number[],
-): void {
-  if (!teamHasRed(state, missionMembers)) return;
-  state.mvpStats.rejectedRedTeam[voter.userId] =
-    (state.mvpStats.rejectedRedTeam[voter.userId] ?? 0) + 1;
-}
-
 /**
  * Count every `fail` ballot cast on a private mission vote. Called
- * once per mission resolution, before state.current is cleared.
+ * once per mission resolution, before state.current is cleared. Fail
+ * ballots are private (the board only reveals the aggregate count) so
+ * — unlike every other MVP signal — they can't be replayed from the
+ * public event timeline and must be tallied here. See `MvpStats`.
  */
 export function recordMvpFails(
   state: GameState,
@@ -446,53 +403,201 @@ export function recordMvpFails(
 }
 
 /**
- * Pick the most-valuable player for the just-ended game:
+ * Per-seat MVP signals reconstructed from the public event timeline.
+ * Every field is a seat-indexed array (length === players.length).
+ * Built by `aggregateMvpSignals`; consumed by `computeMvp`.
+ */
+interface MvpSignals {
+  /** Voted `no` on a proposal whose roster held ≥1 red player. */
+  rejectedRedTeam: number[];
+  /** Voted `no` on an all-blue proposal (drives the rejection-stall MVP). */
+  rejectedCleanTeam: number[];
+  /** Voted `yes` on an approved roster whose mission then SUCCEEDED. */
+  approvedGoodTeam: number[];
+  /** Voted `yes` on an approved roster whose mission then FAILED. */
+  approvedFailedTeam: number[];
+  /** As leader, locked a roster holding ≥1 red player. */
+  proposedRedTeam: number[];
+  /** Member of an approved mission that SUCCEEDED. */
+  successMember: number[];
+  /** Member of any resolved (approved) mission — red-side infiltration. */
+  missionMember: number[];
+  /** As leader, locked an approved roster whose mission then SUCCEEDED. */
+  cleanLeadSuccess: number[];
+}
+
+/**
+ * Replay the public event timeline into per-seat MVP signals. The
+ * timeline (`team-proposed` → `public-vote` → `mission-result`) carries
+ * every fact we need except who cast a fail ballot (private; see
+ * `recordMvpFails`). Single source of truth — both the human and NPC
+ * flows funnel through the same `recordEvent` convergence points, so
+ * this sees a complete, deduplicated record.
+ */
+function aggregateMvpSignals(state: GameState): MvpSignals {
+  const n = state.players.length;
+  const zeros = (): number[] => new Array<number>(n).fill(0);
+  const sig: MvpSignals = {
+    rejectedRedTeam: zeros(),
+    rejectedCleanTeam: zeros(),
+    approvedGoodTeam: zeros(),
+    approvedFailedTeam: zeros(),
+    proposedRedTeam: zeros(),
+    successMember: zeros(),
+    missionMember: zeros(),
+    cleanLeadSuccess: zeros(),
+  };
+  const isRedSeat = (seat: number): boolean => {
+    const p = state.players[seat];
+    return !!p && factionOf(p) === "mordred";
+  };
+  const rosterHasRed = (seats: number[]): boolean => seats.some(isRedSeat);
+
+  // The roster currently "in flight" — set by team-proposed, scored by
+  // the public-vote and mission-result that follow it. A rejected
+  // proposal is superseded by the next team-proposed; only an approved
+  // one is ever followed by a mission-result.
+  let cur: {
+    leaderSeat: number;
+    memberSeats: number[];
+    ballots: Array<{ seat: number; vote: "yes" | "no" }>;
+  } | null = null;
+
+  for (const ev of [...state.events].sort((a, b) => a.seq - b.seq)) {
+    if (ev.kind === "team-proposed") {
+      cur = { leaderSeat: ev.leaderSeat, memberSeats: ev.memberSeats, ballots: [] };
+      if (rosterHasRed(ev.memberSeats)) sig.proposedRedTeam[ev.leaderSeat]++;
+    } else if (ev.kind === "public-vote" && cur) {
+      cur.ballots = ev.ballots;
+      const hasRed = rosterHasRed(cur.memberSeats);
+      for (const b of ev.ballots) {
+        if (b.vote !== "no") continue;
+        if (hasRed) sig.rejectedRedTeam[b.seat]++;
+        else sig.rejectedCleanTeam[b.seat]++;
+      }
+    } else if (ev.kind === "mission-result" && cur) {
+      const success = ev.result === "success";
+      for (const seat of cur.memberSeats) {
+        sig.missionMember[seat]++;
+        if (success) sig.successMember[seat]++;
+      }
+      if (success) sig.cleanLeadSuccess[cur.leaderSeat]++;
+      for (const b of cur.ballots) {
+        if (b.vote !== "yes") continue;
+        if (success) sig.approvedGoodTeam[b.seat]++;
+        else sig.approvedFailedTeam[b.seat]++;
+      }
+      cur = null;
+    }
+  }
+  return sig;
+}
+
+/**
+ * Pick the most-valuable player for the just-ended game — the "decisive
+ * figure" featured on the ending board.
  *
- *  • merlin-killed → the assassin (comeback shot trumps stats).
- *  • Mordred otherwise → max fail-vote count; tied group breaks
- *    by Morgana > random.
- *  • Arthur → max (rejectedRedTeam − proposedRedTeam); tied group
- *    breaks by Merlin > random.
+ * The MVP is always drawn from the WINNING faction: a blue victory
+ * celebrates a blue hero, a red victory a red one. Within that pool the
+ * score blends active contribution with gentle role priors, so genuine
+ * decisive play can outshine a role bonus:
  *
- * Returns null when no player had a non-zero contribution — e.g.
- * the 5-reject loss where no missions ran.
+ *  • merlin-killed → the assassin (the comeback shot trumps all stats).
+ *  • Mordred via failures → 3×fail-ballots + infiltration (missions
+ *    joined); tie breaks Morgana > Assassin > random.
+ *  • Mordred via 5 rejections → most all-blue teams rejected (the
+ *    staller who burned the clock); tie breaks Morgana > random.
+ *  • Arthur → discernment (rejected red, backed winning teams),
+ *    reliable field work (successful missions, clean leadership) minus
+ *    misplays (proposed/approved teams that carried or became failures),
+ *    plus a Merlin survival prior and a Percival-decoy bonus when the
+ *    assassin's shot missed Merlin. Tie breaks Merlin > Percival > random.
+ *
+ * Returns null when no winning-faction player scored above zero — e.g.
+ * a rejection loss where no red player rejected a clean team.
  */
 export function computeMvp(state: GameState, verdict: Verdict): Player | null {
   if (!verdict.ended || !verdict.winner) return null;
   if (verdict.reason === "merlin-killed") {
     return state.players.find((p) => p.position === "assassin") ?? null;
   }
+  const sig = aggregateMvpSignals(state);
+
   if (verdict.winner === "mordred") {
-    return mvpTieBreak(
+    if (verdict.reason === "rejections") {
+      return mvpPick(
+        state,
+        "mordred",
+        (p) => sig.rejectedCleanTeam[p.index] ?? 0,
+        ["morgana"],
+      );
+    }
+    return mvpPick(
       state,
-      (p) => state.mvpStats.failVotes[p.userId] ?? 0,
-      "morgana",
+      "mordred",
+      (p) =>
+        3 * (state.mvpStats.failVotes[p.userId] ?? 0) +
+        (sig.missionMember[p.index] ?? 0),
+      ["morgana", "assassin"],
     );
   }
-  return mvpTieBreak(
+
+  // Arthur win (missions-clean on 4p, or merlin-survived after a miss).
+  const lastShot = [...state.events]
+    .reverse()
+    .find((e) => e.kind === "assassinate");
+  const assassinMissedMerlin =
+    lastShot?.kind === "assassinate" && lastShot.targetRole !== "merlin";
+  const decoyTargetSeat =
+    lastShot?.kind === "assassinate" ? lastShot.targetSeat : null;
+
+  return mvpPick(
     state,
-    (p) =>
-      (state.mvpStats.rejectedRedTeam[p.userId] ?? 0) -
-      (state.mvpStats.proposedRedTeam[p.userId] ?? 0),
-    "merlin",
+    "arthur",
+    (p) => {
+      let s =
+        2 * (sig.rejectedRedTeam[p.index] ?? 0) +
+        (sig.approvedGoodTeam[p.index] ?? 0) +
+        (sig.successMember[p.index] ?? 0) +
+        (sig.cleanLeadSuccess[p.index] ?? 0) -
+        2 * (sig.proposedRedTeam[p.index] ?? 0) -
+        (sig.approvedFailedTeam[p.index] ?? 0);
+      // Merlin steered the side blind and lived to tell it.
+      if (p.position === "merlin") s += 2;
+      // Percival drew the assassin off Merlin — bigger if he took the shot.
+      if (p.position === "percival" && assassinMissedMerlin) {
+        s += decoyTargetSeat === p.index ? 4 : 2;
+      }
+      return s;
+    },
+    ["merlin", "percival"],
   );
 }
 
-function mvpTieBreak(
+/**
+ * Choose the top-scoring player within `faction`. Ties break by the
+ * `preferred` position list (first match wins), then random. Returns
+ * null when the best score is ≤ 0 — nobody in the winning faction made
+ * a positive contribution.
+ */
+function mvpPick(
   state: GameState,
+  faction: Faction,
   scoreFn: (p: Player) => number,
-  preferred: Position,
+  preferred: Position[],
 ): Player | null {
+  const pool = state.players.filter((p) => factionOf(p) === faction);
   let max = -Infinity;
-  for (const p of state.players) {
+  for (const p of pool) {
     const s = scoreFn(p);
     if (s > max) max = s;
   }
-  // Below-or-equal-zero max → nobody contributed; no MVP.
   if (max <= 0) return null;
-  const tied = state.players.filter((p) => scoreFn(p) === max);
+  const tied = pool.filter((p) => scoreFn(p) === max);
   if (tied.length === 0) return null;
-  const preferredPick = tied.find((p) => p.position === preferred);
-  if (preferredPick) return preferredPick;
+  for (const pos of preferred) {
+    const hit = tied.find((p) => p.position === pos);
+    if (hit) return hit;
+  }
   return tied[Math.floor(Math.random() * tied.length)] ?? null;
 }

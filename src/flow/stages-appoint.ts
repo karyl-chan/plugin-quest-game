@@ -9,7 +9,6 @@ import {
   currentMissionSize,
   leader,
   playerByIndex,
-  recordMvpProposal,
   type GameState,
 } from "../game/state.js";
 import { getGame } from "../game/store.js";
@@ -141,7 +140,8 @@ export async function applyAppointConfirm(
     components: [],
   });
   const missionMembers = [...game.current.selected];
-  recordMvpProposal(game, leaderPlayer, missionMembers);
+  // The "proposed a red team" MVP signal is derived from the
+  // team-proposed event timeline at scoring time (see computeMvp).
   await openPublicVote(game, missionMembers);
 }
 

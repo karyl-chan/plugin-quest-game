@@ -10,7 +10,6 @@ import {
   leader,
   playerByIndex,
   playerByUserId,
-  recordMvpRejection,
   rotateLeader,
   type GameState,
 } from "../game/state.js";
@@ -101,9 +100,8 @@ export async function applyPublicVote(
   if (!me) return;
   if (game.current.votes[userId]) return;
   game.current.votes[userId] = vote;
-  if (vote === "no") {
-    recordMvpRejection(game, me, game.current.missionMembers);
-  }
+  // MVP rejection signals are derived from the public-vote event
+  // timeline at scoring time (see computeMvp), not tracked here.
 
   // Live progress repaint — show vote count only, not who-voted-what.
   await editMessage({
