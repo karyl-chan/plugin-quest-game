@@ -240,7 +240,6 @@ function onClose(): void {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-  padding: 1rem;
 }
 .crop-hint {
   color: var(--text-muted);
