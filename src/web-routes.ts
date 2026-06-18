@@ -1008,7 +1008,11 @@ export async function registerWebRoutes(
     return html;
   }
 
+  // Manage tier — the bot admin UI links to /manage with a manage token;
+  // game tier links to /?token=…&c=…&s=… ; manual is public. Same SPA
+  // bundle, the client picks the flow from the path.
   server.get("/", async (_request, reply) => serveSpa(reply));
+  server.get("/manage", async (_request, reply) => serveSpa(reply));
   server.get("/manual", async (_request, reply) => serveSpa(reply));
 
   // Health probe — used by Docker compose to flip the container's

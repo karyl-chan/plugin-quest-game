@@ -4,6 +4,7 @@ import {
   definePlugin,
   definePluginCommand,
   definePluginComponent,
+  defineWebUI,
   type CommandReply,
   type ComponentContext,
   type ComponentReply,
@@ -256,14 +257,6 @@ export function buildPlugin() {
               },
               {
                 type: "sub_command",
-                name: "manage",
-                description: t("en", "command.quest-game.manage.description"),
-                descriptionLocalizations: localizedDescriptions(
-                  "command.quest-game.manage.description",
-                ),
-              },
-              {
-                type: "sub_command",
                 name: "webui",
                 description: t("en", "command.quest-game.webui.description"),
                 descriptionLocalizations: localizedDescriptions(
@@ -447,36 +440,6 @@ export function buildPlugin() {
                   };
                 });
               }
-              if (sub === "manage") {
-                // 15-min bot JWT — only used to bootstrap a plugin-side
-                // manage session (access + refresh) on first load.
-                const res = (await ctx.botRpc("/api/plugin/auth.session", {
-                  user_id: ctx.userId,
-                  kind: "manage",
-                })) as { allowed?: boolean; token?: string } | null;
-                if (res === null) {
-                  return {
-                    content: `⚠ ${t(locale, "manage.botRejected")}`,
-                    ephemeral: true,
-                  };
-                }
-                if (res.allowed !== true || typeof res.token !== "string") {
-                  return {
-                    content: `⚠ ${t(locale, "manage.notAllowed")}`,
-                    ephemeral: true,
-                  };
-                }
-                return {
-                  content: `🔧 **${t(locale, "manage.title")}**\n${t(locale, "manage.description")}`,
-                  components: [
-                    linkButtonRow(
-                      `🔧 ${t(locale, "manage.openButton")}`,
-                      `${effectiveBase()}/?token=${res.token}`,
-                    ),
-                  ],
-                  ephemeral: true,
-                };
-              }
               if (sub === "webui") {
                 // Per-player game board. Works for seated players
                 // (own role card + vision) and spectators alike —
@@ -598,6 +561,9 @@ export function buildPlugin() {
         description: "Access the QuestGame admin WebUI (list / force-stop games).",
       },
     ],
+    // Manage WebUI is reached from the bot admin plugin page (which mints a
+    // manage token for the logged-in admin), served at <base>/manage.
+    webUI: defineWebUI(),
     onReady: async (server) => {
       await registerWebRoutes(server, effectiveBase);
       // One-shot cleanup of orphan art files whose names no longer

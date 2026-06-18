@@ -1,7 +1,6 @@
 import { ref } from "vue";
 import {
   bootstrapPluginSession,
-  decodeJwt,
   type SessionHandle,
 } from "@karyl-chan/plugin-sdk/web";
 import { setApi, setGameSession } from "../api";
@@ -9,23 +8,21 @@ import { setApi, setGameSession } from "../api";
 /**
  * App-level routing between the QuestGame WebUI surfaces:
  *
- *  - `manage` — admin panel (`/quest-game manage`): a capability-
- *    bearing bot JWT, exchanged by the SDK for a plugin-issued
- *    access/refresh pair.
+ *  - `manage` — admin panel: reached from the bot admin plugin page's
+ *    "Manage" link at `<base>/manage`. A capability-bearing bot JWT,
+ *    exchanged by the SDK for a plugin-issued access/refresh pair.
  *  - `game`   — per-player board (`/quest-game webui`): a
  *    capability-less session JWT plus `?c=<channelId>` + `?s=<sessionId>`.
  *  - `manual` — public reference content; pure path-based, no JWT.
  *
- * The QuestGame bot CLI emits a single `?token=…` link for both
- * surfaces (no `?surface=` query param), so we lean on the SDK's
- * `surfaceFromClaims` resolver (0.5+) to derive surface from the
- * token's capabilities. Tab reload restores from sessionStorage
- * automatically.
+ * Mode is decided by PATH, not token caps: `/manage` → exchange flow,
+ * `/manual` → public, anything else → game-board session bearer. Path is
+ * stable across tab reloads, so the manage SPA resumes its refresh pair
+ * without re-inspecting any token.
  */
 export type AppMode = "loading" | "denied" | "manage" | "game" | "manual";
 
 const PLUGIN_KEY = "karyl-quest-game";
-const MANAGE_CAP_TOKEN = `plugin:${PLUGIN_KEY}:manage`;
 
 const mode = ref<AppMode>("loading");
 const deniedMessage = ref<string | null>(null);
@@ -37,13 +34,6 @@ function deny(message: string): void {
   mode.value = "denied";
 }
 
-function hasManageCaps(claims: { capabilities?: unknown } | null): boolean {
-  const caps = Array.isArray(claims?.capabilities)
-    ? (claims!.capabilities as string[])
-    : [];
-  return caps.includes("admin") || caps.includes(MANAGE_CAP_TOKEN);
-}
-
 export async function bootstrapApp(): Promise<void> {
   // The /manual route is public reference content — no token, no
   // session; the SPA routes to it purely on the path.
@@ -52,14 +42,14 @@ export async function bootstrapApp(): Promise<void> {
     return;
   }
 
-  // Quest-game's link URLs don't carry `?surface=` — the bot CLI
-  // emits `/?token=…&c=…&s=…`. Peek at the URL token's capabilities
-  // ourselves to decide whether to ask the SDK for the JWT-exchange
-  // flow (manage tier, refreshable pair) or the direct-bearer flow
-  // (game tier, single JWT used as Bearer).
-  const urlToken = new URLSearchParams(window.location.search).get("token");
-  const urlClaims = urlToken ? decodeJwt(urlToken) : null;
-  const wantsExchange = urlClaims ? hasManageCaps(urlClaims) : false;
+  // Mode is decided by PATH, not token caps: the bot admin UI links to
+  // `<base>/manage` (exchange → refreshable access/refresh pair); game
+  // links to `/?token=…&c=…&s=…` (direct session bearer). Path is stable
+  // across tab reloads, so the manage SPA resumes without re-inspecting
+  // any token.
+  const wantsExchange = window.location.pathname
+    .replace(/\/+$/, "")
+    .endsWith("/manage");
 
   const handle = await bootstrapPluginSession({
     pluginKey: PLUGIN_KEY,
@@ -79,7 +69,7 @@ export async function bootstrapApp(): Promise<void> {
   }
 
   if (!handle.isAuthenticated) {
-    deny("請在 Discord 內透過 /quest-game webui 或 /quest-game manage 取得連結。");
+    deny("請在 Discord 內透過 /quest-game webui 取得遊戲板連結，或從機器人管理頁開啟管理面板。");
     return;
   }
 
@@ -96,9 +86,8 @@ export async function bootstrapApp(): Promise<void> {
     return;
   }
 
-  // Fresh URL token — we already decoded its caps above to pick the
-  // flow. Branch on the same signal so the routing decision matches
-  // what the SDK actually did.
+  // Fresh load — branch on the same path signal used to pick the SDK
+  // flow above so the routing decision matches what the SDK actually did.
   if (wantsExchange) {
     mode.value = "manage";
     return;
