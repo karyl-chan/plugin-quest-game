@@ -2,6 +2,7 @@ import {
   componentCustomId,
   defineGuildFeature,
   definePlugin,
+  definePluginCapability,
   definePluginCommand,
   definePluginComponent,
   defineWebUI,
@@ -556,10 +557,10 @@ export function buildPlugin() {
       }),
     ],
     capabilities: [
-      {
+      definePluginCapability({
         key: "manage",
         description: "Access the QuestGame admin WebUI (list / force-stop games).",
-      },
+      }),
     ],
     // Manage WebUI is reached from the bot admin plugin page (which mints a
     // manage token for the logged-in admin), served at <base>/manage.
