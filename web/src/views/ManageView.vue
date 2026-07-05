@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
-import { AppButton, AppTabs, type TabDef } from "@karyl-chan/ui";
+import { AppButton, AppTabs, Cluster, Stack, type TabDef } from "@karyl-chan/ui";
 import GamesView from "./GamesView.vue";
 import ArtView from "./ArtView.vue";
 import AssetsView from "./AssetsView.vue";
@@ -50,8 +50,10 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="manage-view">
-    <div class="tabs-row">
+  <Stack gap="4">
+    <!-- AppTabs' root is flex:1, so it fills the row and pushes the
+         refresh button to the right edge (no Spacer needed). -->
+    <Cluster :wrap="false" align="start">
       <AppTabs
         :model-value="activeTab"
         :tabs="tabs"
@@ -60,28 +62,11 @@ onMounted(() => {
       <AppButton variant="ghost" size="sm" @click="refresh()">
         重新整理
       </AppButton>
-    </div>
+    </Cluster>
     <KeepAlive>
       <GamesView v-if="activeTab === 'games'" />
       <ArtView v-else-if="activeTab === 'art'" />
       <AssetsView v-else />
     </KeepAlive>
-  </div>
+  </Stack>
 </template>
-
-<style scoped>
-.manage-view {
-  display: flex;
-  flex-direction: column;
-}
-.tabs-row {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 0.5rem;
-}
-.tabs-row > :first-child {
-  flex: 1;
-  min-width: 0;
-}
-</style>
