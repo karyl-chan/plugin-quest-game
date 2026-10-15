@@ -36,6 +36,19 @@ async function drainMicrotasks(): Promise<void> {
   }
 }
 
+async function waitForGameEnd(
+  channelId: string,
+  timeoutMs = 2_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (getGame(channelId) !== null) {
+    if (Date.now() >= deadline) {
+      throw new Error(`game ${channelId} did not finish within ${timeoutMs}ms`);
+    }
+    await drainMicrotasks();
+  }
+}
+
 /** Mulberry32 seeded RNG — deterministic across test runs. */
 function seededRng(seed: number): () => number {
   let t = seed >>> 0;
@@ -175,12 +188,10 @@ describe("flow-npc-004: NPC-only game runs to a verdict", () => {
       game.players[i].displayName = `NPC-${i}`;
     }
     await openAppoint(game);
-    // Drain enough microtasks to let the entire game self-play through
-    // round-by-round transitions. Each open*() chains the next NPC tick
-    // via queueMicrotask in delay=0 mode.
-    for (let i = 0; i < 50; i++) {
-      await drainMicrotasks();
-    }
+    // Wait for the observable completion condition instead of assuming a
+    // fixed number of event-loop turns. endGame performs real filesystem I/O
+    // while resolving optional MVP art, which is slower under parallel CI.
+    await waitForGameEnd("c-npc-solo");
     // Game should have ended (game record removed by endGame). The
     // fake runtime should have logged the verdict embed.
     expect(getGame("c-npc-solo")).toBeNull();
