@@ -183,13 +183,19 @@ export async function respondToInteraction(opts: {
   embeds?: DiscordEmbed[];
   components?: Components;
 }): Promise<boolean> {
-  const res = await runtime().botRpc("/api/plugin/interactions.respond", {
-    interaction_token: opts.interactionToken,
-    content: opts.content,
-    embeds: opts.embeds,
-    components: opts.components,
-  });
-  return res !== null;
+  try {
+    await runtime().discord.interactions.respond({
+      interactionToken: opts.interactionToken,
+      content: opts.content,
+      embeds: opts.embeds as unknown as APIEmbed[] | undefined,
+      components: opts.components
+        ? asMessageRows(opts.components)
+        : undefined,
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -204,16 +210,20 @@ export async function followupEphemeral(opts: {
   components?: Components;
   attachments?: DiscordAttachment[];
 }): Promise<boolean> {
-  const res = await runtime().botRpc("/api/plugin/interactions.followup", {
-    interaction_token: opts.interactionToken,
-    content: opts.content,
-    embeds: opts.embeds,
-    components: opts.components,
-    ephemeral: true,
-    ...(opts.attachments && opts.attachments.length > 0
-      ? { attachments: opts.attachments }
-      : {}),
-  });
-  return res !== null;
+  try {
+    await runtime().discord.interactions.followup({
+      interactionToken: opts.interactionToken,
+      content: opts.content,
+      embeds: opts.embeds as unknown as APIEmbed[] | undefined,
+      components: opts.components
+        ? asMessageRows(opts.components)
+        : undefined,
+      ephemeral: true,
+      attachments: opts.attachments as MessageAttachment[] | undefined,
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }
 

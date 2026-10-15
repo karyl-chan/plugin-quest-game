@@ -16,25 +16,16 @@
 import { isNpc, type GameState } from "../game/state.js";
 import { runtime } from "./runtime.js";
 
-interface MembersGetResponse {
-  members?: Array<{
-    userId?: unknown;
-    displayName?: unknown;
-    avatarUrl?: unknown;
-  }>;
-}
-
 export async function enrichPlayerProfiles(game: GameState): Promise<void> {
   const humanIds = game.players
     .filter((p) => !isNpc(p))
     .map((p) => p.userId);
   if (humanIds.length === 0) return;
   try {
-    const res = (await runtime().botRpc("/api/plugin/members.get", {
-      guild_id: game.guildId,
-      user_ids: humanIds,
-    })) as MembersGetResponse | null;
-    const members = Array.isArray(res?.members) ? res.members : [];
+    const members = await runtime().discord.members.getMany({
+      guildId: game.guildId,
+      userIds: humanIds,
+    });
     const byId = new Map(game.players.map((p) => [p.userId, p]));
     for (const m of members) {
       if (typeof m.userId !== "string") continue;
