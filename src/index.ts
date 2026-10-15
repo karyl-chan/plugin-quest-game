@@ -14,6 +14,7 @@ wireRuntime({
   botRpc: started.botRpc,
   discord: started.discord,
   voice: started.voice,
+  auth: started.auth,
   log: {
     info: (msg, meta) => started.server.log.info(meta ?? {}, msg),
     warn: (msg, meta) => started.server.log.warn(meta ?? {}, msg),

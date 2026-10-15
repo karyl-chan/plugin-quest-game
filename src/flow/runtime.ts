@@ -11,7 +11,12 @@
  * paths run after start, so they're safe.
  */
 
-import type { Discord, Voice } from "@karyl-chan/plugin-sdk";
+import {
+  createPluginRpc,
+  type Auth,
+  type Discord,
+  type Voice,
+} from "@karyl-chan/plugin-sdk";
 
 export interface Logger {
   info(msg: string, meta?: Record<string, unknown>): void;
@@ -30,6 +35,8 @@ interface Runtime {
   discord: Discord;
   /** Typed Voice RPC facade. */
   voice: Voice;
+  /** Typed session-token minting facade. */
+  auth: Auth;
   log: Logger;
   /**
    * Browser-reachable base URL for this plugin's HTTP surface
@@ -79,7 +86,19 @@ function withRpcTimeout(inner: BotRpc): BotRpc {
 }
 
 export function wireRuntime(r: Runtime): void {
-  active = { ...r, botRpc: withRpcTimeout(r.botRpc) };
+  const botRpc = withRpcTimeout(r.botRpc);
+  const rpc = createPluginRpc(async (path, body) => {
+    const result = await botRpc(path, body);
+    if (result === null) throw new Error(`bot RPC failed: ${path}`);
+    return result;
+  });
+  active = {
+    ...r,
+    botRpc,
+    discord: rpc.discord,
+    voice: rpc.voice,
+    auth: rpc.auth,
+  };
 }
 
 export function runtime(): Runtime {

@@ -1,8 +1,8 @@
 /**
  * Test harness for stage-level integration tests.
  *
- * The quest-game flow code calls Discord via `runtime().botRpc(...)`. We
- * install a fake runtime that:
+ * The quest-game flow code calls Discord through the typed runtime facade.
+ * We install a fake runtime that:
  *  - assigns predictable, increasing message ids so `state.current.messageId`
  *    is captured deterministically;
  *  - records every RPC call with path + body for assertion;
@@ -82,6 +82,13 @@ export function installFakeRuntime(): InstalledHarness {
       _msgCounter++;
       return { id: `msg-${_msgCounter}`, channel_id: channelId };
     }
+    if (path === "/api/plugin/auth.session") {
+      return {
+        allowed: true,
+        token: "fake.jwt.token",
+        expiresAt: Date.now() + 60_000,
+      };
+    }
     return { ok: true };
   };
   const botRpc: BotRpc = async (path, body) => {
@@ -103,6 +110,7 @@ export function installFakeRuntime(): InstalledHarness {
     botRpc,
     discord: rpc.discord,
     voice: rpc.voice,
+    auth: rpc.auth,
     log,
     publicBaseUrl: () => "http://test.local",
   });

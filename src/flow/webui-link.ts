@@ -18,12 +18,14 @@ export async function buildWebuiLinkRow(
   sessionId: string,
   locale: Locale,
 ): Promise<DiscordActionRow | null> {
-  const res = (await runtime().botRpc("/api/plugin/auth.session", {
-    user_id: userId,
-    kind: "session",
-    guild_id: guildId,
-  })) as { allowed?: boolean; token?: string } | null;
-  if (res?.allowed !== true || typeof res.token !== "string") return null;
+  const res = await runtime()
+    .auth.mintSession({
+      userId,
+      kind: "session",
+      guildId,
+    })
+    .catch(() => ({ allowed: false }) as const);
+  if (!res.allowed) return null;
   const url =
     `${runtime().publicBaseUrl()}/?token=${res.token}` +
     `&c=${channelId}&s=${sessionId}`;
