@@ -1,6 +1,6 @@
 {
   "name": "@karyl-chan/plugin-quest-game",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Discord board-game bot — interactive team-deduction quest game with shared buttons and ephemeral player views (no DM required).",
   "type": "module",
   "private": true,
